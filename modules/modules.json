@@ -1,29 +1,11 @@
 [
   {
-    "module_type": "pnp_cloud",
+    "module_type": "pnp",
     "display_name": "Pick & Place",
-    "image_url": "http://localhost:3000/modules/pnp/assets/mechanic.png",
+    "image_url": "https://cdn-modules.onrender.com/modules/pnp/assets/mechanic.png",
     "route_path": "/pnp_cloud",
-    "jsx_file_url": "http://localhost:3000/modules/pnp/PNP.jsx",
-    "css_file_url": "http://localhost:3000/modules/pnp/PNP.css",
-    "version": "1.0.4"
-  },
-  {
-    "module_type": "laser_cloud",
-    "display_name": "Laser Cutter",
-    "image_url": "/laser.png",
-    "route_path": "/laser_cloud",
-    "jsx_file_url": "http://localhost:3000/modules/laser/Laser.jsx",
-    "css_file_url": "http://localhost:3000/modules/laser/Laser.css",
-    "version": "1.0.0"
-  },
-  {
-    "module_type": "gripper_cloud",
-    "display_name": "Gripper",
-    "image_url": "/gripper.png",
-    "route_path": "/gripper_cloud",
-    "jsx_file_url": "http://localhost:3000/modules/gripper/Gripper.jsx",
-    "css_file_url": "http://localhost:3000/modules/gripper/Gripper.css",
-    "version": "1.0.0"
+    "jsx_file_url": "https://cdn-modules.onrender.com/modules/pnp/PNP.jsx",
+    "css_file_url": "https://cdn-modules.onrender.com/modules/pnp/PNP.css",
+    "version": "1.0.3"
   }
 ]
