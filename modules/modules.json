@@ -1,7 +1,7 @@
 [
   {
     "module_type": "pnp",
-    "display_name": "Pick 2& Place",
+    "display_name": "Pick & Place",
     "image_url": "https://cdn-modules.onrender.com/modules/pnp/assets/mechanic.png",
     "route_path": "/pnp_cloud",
     "jsx_file_url": "https://cdn-modules.onrender.com/modules/pnp/PNP.jsx",
