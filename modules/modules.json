@@ -9,14 +9,14 @@
     "version": "1.0.3"
   },
    {
-    "module_type": "pnp",
+    "module_type": "pp",
     "display_name": "Pick & Place 2",
     "image_url": "https://cdn-modules.onrender.com/modules/pnp/assets/mechanic.png",
     "route_path": "/pnp_cloud",
     "jsx_file_url": "https://cdn-modules.onrender.com/modules/pnp/PNP.jsx",
     "css_file_url": "https://cdn-modules.onrender.com/modules/pnp/PNP.css",
     "version": "1.0.3"
-  }, { "module_type": "pnp",
+  }, { "module_type": "np",
     "display_name": "Pick & Place 2",
     "image_url": "https://cdn-modules.onrender.com/modules/pnp/assets/mechanic.png",
     "route_path": "/pnp_cloud",
