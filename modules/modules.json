@@ -9,8 +9,8 @@
     "version": "1.0.3"
   },{
     
-    "module_type": "np",
-    "display_name": "Pick & Place 2",
+    "module_type": "dfnp",
+    "display_name": "Pick & Plae 2",
     "image_url": "https://cdn-modules.onrender.com/modules/pnp/assets/mechanic.png",
     "route_path": "/pnp_cloud",
     "jsx_file_url": "https://cdn-modules.onrender.com/modules/pnp/PNP.jsx",
