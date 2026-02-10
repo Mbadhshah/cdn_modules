@@ -24,6 +24,6 @@
     "route_path": "/plotter",
     "jsx_file_url": "https://cdn-modules.onrender.com/modules/pnp/Plotter.jsx",
     "css_file_url": "https://cdn-modules.onrender.com/modules/pnp/Plotter.css",
-    "version": "1.0.0"
+    "version": "1.0.1"
   }
 ]
