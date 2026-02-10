@@ -813,9 +813,8 @@ function PickAndPlacePage() {
         }
     };
 
-    const modalTitle = activeBlock ?
-        activeBlock.type === 'motion' ? "Set Coordinates" :
-            activeBlock.type === 'vacuum' ? "Vacuum Settings" : "Orientation Settings"
+        const modalTitle = activeBlock ?
+        activeBlock.type === 'motion' ? "Set Coordinates" : "Vacuum Settings"
         : "";
 
     return (
