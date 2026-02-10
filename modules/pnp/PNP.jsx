@@ -6,7 +6,7 @@ import { uploadGcodeFile } from '../api/gcodeUploader';
 
 const PALETTE_BLOCKS = [
     { type: 'motion', label: 'Move to Point', icon: '✥' },
-    { type: 'vacuum', label: 'Pick', icon: '◎' },
+    { type: 'vacuum', label: 'Pick & Place', icon: '◎' },
     { type: 'orient', label: 'Set Orientation', icon: '⟳' },
 ];
 
@@ -823,7 +823,7 @@ function PickAndPlacePage() {
         <div className="roboblock-studio-body">
                 <div id="main-container">
                     <div id="palette">
-                        <div className="palette-header">Logic Blocks</div>
+                        <div className="palette-header">Logic Block</div>
                         {PALETTE_BLOCKS.map(block => (
                             <div key={block.type} className={`block block-${block.type}`} draggable="true" onDragStart={(e) => handleDragStart(e, block)}>
                                 <span>{block.label}</span>
