@@ -16,5 +16,14 @@
     "jsx_file_url": "https://cdn-modules.onrender.com/modules/pnp/magneticpnp.jsx",
     "css_file_url": "https://cdn-modules.onrender.com/modules/pnp/magneticpnp.css",
     "version": "1.0.0"
+  },
+  {
+    "module_type": "plotter",
+    "display_name": "Plotter",
+    "image_url": "https://cdn-modules.onrender.com/modules/pnp/assets/mechanic.png",
+    "route_path": "/plotter",
+    "jsx_file_url": "https://cdn-modules.onrender.com/modules/plotter/Plotter.jsx",
+    "css_file_url": "https://cdn-modules.onrender.com/modules/plotter/Plotter.css",
+    "version": "1.0.0"
   }
 ]
