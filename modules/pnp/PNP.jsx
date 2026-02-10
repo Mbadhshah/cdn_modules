@@ -823,7 +823,7 @@ function PickAndPlacePage() {
         <div className="roboblock-studio-body">
                 <div id="main-container">
                     <div id="palette">
-                        <div className="palette-header">Logic Block</div>
+                        <div className="palette-header">Logic Blocks</div>
                         {PALETTE_BLOCKS.map(block => (
                             <div key={block.type} className={`block block-${block.type}`} draggable="true" onDragStart={(e) => handleDragStart(e, block)}>
                                 <span>{block.label}</span>
