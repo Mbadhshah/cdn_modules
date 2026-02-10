@@ -22,8 +22,8 @@
     "display_name": "Plotter",
     "image_url": "https://cdn-modules.onrender.com/modules/pnp/assets/mechanic.png",
     "route_path": "/plotter",
-    "jsx_file_url": "https://cdn-modules.onrender.com/modules/Plotter.jsx",
-    "css_file_url": "https://cdn-modules.onrender.com/modules/Plotter.css",
+    "jsx_file_url": "https://cdn-modules.onrender.com/modules/plotter/Plotter.jsx",
+    "css_file_url": "https://cdn-modules.onrender.com/modules/plotter/Plotter.css",
     "version": "1.0.0"
   }
 ]
