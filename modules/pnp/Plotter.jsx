@@ -504,7 +504,7 @@ export default function VectorPlotter() {
             </button>
             <br /><br />
 
-            <div className="section-header">Dimensions (mm)</div>
+            <div className="section-header">Dimensiaoisbndusbons (mm)</div>
             <div className="control-group"><label>Width:</label><input type="number" value={settings.width} onChange={(e) => updateSetting('width', parseFloat(e.target.value) || 0)} /></div>
             <div className="control-group"><label>Height:</label><input type="number" value={settings.height} onChange={(e) => updateSetting('height', parseFloat(e.target.value) || 0)} /></div>
             <div className="control-group"><label>Keep proportions:</label><input type="checkbox" checked={settings.keepProportions} onChange={(e) => updateSetting('keepProportions', e.target.checked)} /></div>
