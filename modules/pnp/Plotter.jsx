@@ -391,14 +391,7 @@ export default function VectorPlotter() {
       {/* Hidden Div for Parsing */}
       <div ref={hiddenSvgRef} style={{position:'absolute', width:0, height:0, visibility:'hidden', pointerEvents:'none'}}></div>
 
-      {/* Header */}
-      <header className="h-12 bg-[#2d2d30] border-b border-gray-700 flex items-center px-4 justify-between shadow-md z-20">
-        <div className="font-bold text-lg tracking-wider text-white">adtri <span className="text-xs font-normal text-gray-400">VECTOR STUDIO</span></div>
-        <div className="flex items-center gap-2 text-xs text-blue-400 font-bold tracking-wider">
-             <PenTool size={14} />
-             <span>SVG PLOTTER</span>
-        </div>
-      </header>
+      {/* Header Removed */}
 
       <div className="flex flex-1 overflow-hidden relative">
         
