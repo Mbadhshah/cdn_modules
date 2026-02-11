@@ -158,10 +158,6 @@ export default function VectorPlotter() {
             if (tag === 'path') {
                 samplePath(el);
             } else {
-                // For primitives, browser can usually get total length directly
-                // BUT we need to handle transforms. 
-                // We reuse samplePath logic by treating the primitive as a path source?
-                // No, primitives don't have 'd'.
                 try {
                     const len = el.getTotalLength();
                     const ctm = el.getCTM ? el.getCTM() : null;
@@ -387,7 +383,13 @@ export default function VectorPlotter() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-200 font-sans overflow-hidden">
+    <div 
+        className="flex flex-col h-screen text-gray-200 font-sans overflow-hidden bg-cover bg-center"
+        style={{
+            backgroundImage: `url('https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2670&auto=format&fit=crop')`, // Dark abstract technical background
+            backgroundColor: '#111' // Fallback
+        }}
+    >
       {/* Hidden Div for Parsing */}
       <div ref={hiddenSvgRef} style={{position:'absolute', width:0, height:0, visibility:'hidden', pointerEvents:'none'}}></div>
 
@@ -396,7 +398,7 @@ export default function VectorPlotter() {
       <div className="flex flex-1 overflow-hidden relative">
         
         {/* Left Toolbar */}
-        <div className="w-16 bg-white/5 backdrop-blur-md border-r border-white/10 flex flex-col items-center py-4 gap-4 z-10 m-4 rounded-xl shadow-2xl">
+        <div className="w-16 bg-black/40 backdrop-blur-md border-r border-white/10 flex flex-col items-center py-4 gap-4 z-10 m-4 rounded-xl shadow-2xl">
           <label className="p-3 rounded-xl bg-white/10 hover:bg-blue-600 hover:text-white transition-all cursor-pointer group tooltip-container">
             <Upload size={20} />
             <input ref={fileInputRef} type="file" accept=".svg" className="hidden" onChange={handleFile} />
@@ -408,7 +410,7 @@ export default function VectorPlotter() {
 
         {/* Center Workspace */}
         <div 
-            className="flex-1 relative overflow-hidden bg-[#121212] cursor-grab active:cursor-grabbing flex justify-center items-center"
+            className="flex-1 relative overflow-hidden bg-transparent cursor-grab active:cursor-grabbing flex justify-center items-center"
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
@@ -425,24 +427,24 @@ export default function VectorPlotter() {
              >
                  {/* Machine Bed */}
                  <div 
-                    className="bg-white shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative"
+                    className="bg-white/90 shadow-[0_10px_50px_rgba(0,0,0,0.8)] relative backdrop-blur-sm"
                     style={{
                         width: '500px',
                         height: '300px',
                         backgroundImage: `
-                            linear-gradient(#eee 1px, transparent 1px),
-                            linear-gradient(90deg, #eee 1px, transparent 1px)
+                            linear-gradient(#ccc 1px, transparent 1px),
+                            linear-gradient(90deg, #ccc 1px, transparent 1px)
                         `,
                         backgroundSize: '10px 10px'
                     }}
                  >
                     {/* Visual Bed Markers */}
-                    <div className="absolute top-0 left-0 text-[10px] text-gray-400 p-1 select-none">0,0</div>
-                    <div className="absolute bottom-1 right-1 text-gray-400 text-xs pointer-events-none select-none">500mm x 300mm</div>
+                    <div className="absolute top-0 left-0 text-[10px] text-gray-500 p-1 select-none">0,0</div>
+                    <div className="absolute bottom-1 right-1 text-gray-500 text-xs pointer-events-none select-none">500mm x 300mm</div>
                     
                     {/* Axes */}
-                    <div className="absolute left-0 bottom-0 w-full h-px bg-green-500 opacity-50 pointer-events-none"></div>
-                    <div className="absolute left-0 bottom-0 w-px h-full bg-red-500 opacity-50 pointer-events-none"></div>
+                    <div className="absolute left-0 bottom-0 w-full h-px bg-green-600 opacity-60 pointer-events-none"></div>
+                    <div className="absolute left-0 bottom-0 w-px h-full bg-red-600 opacity-60 pointer-events-none"></div>
 
                     {/* The Plot Preview (Draggable Object) */}
                     {paths.length > 0 && (
@@ -471,7 +473,7 @@ export default function VectorPlotter() {
                     )}
                     
                     {!paths.length && (
-                        <div className="absolute inset-0 flex items-center justify-center text-gray-300 pointer-events-none opacity-20">
+                        <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none opacity-20">
                             <Upload size={64} />
                         </div>
                     )}
@@ -480,21 +482,12 @@ export default function VectorPlotter() {
         </div>
 
         {/* Right Settings Panel */}
-        <div className="w-[300px] bg-[#252526] border-l border-black overflow-y-auto z-15 shadow-2xl text-sm">
-            <div className="p-4 space-y-6">
+        <div className="w-[300px] flex flex-col bg-black/40 backdrop-blur-xl border-l border-white/10 z-15 shadow-2xl text-sm">
+            {/* Scrollable Settings Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
                 
-                {/* Generate Button */}
-                <button 
-                    disabled={paths.length === 0 || isProcessing}
-                    onClick={generateGCode}
-                    className={`w-full py-3 rounded font-bold flex items-center justify-center gap-2 transition-all ${paths.length === 0 ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50'}`}
-                >
-                    {isProcessing ? <RefreshCw className="animate-spin" /> : <Download size={18} />}
-                    {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
-                </button>
-
                 {/* Dimensions Group */}
-                <div className="border-b border-gray-700 pb-4">
+                <div className="border-b border-white/10 pb-4">
                     <div className="flex items-center gap-2 mb-3 text-blue-400 font-semibold uppercase text-xs tracking-wider">
                         <Settings size={14} />
                         Dimensions (mm)
@@ -504,7 +497,7 @@ export default function VectorPlotter() {
                         <Control label="Height" value={settings.height} onChange={v => updateSetting('height', v)} />
                         
                         <div className="flex items-center justify-between cursor-pointer pt-2" onClick={() => updateSetting('keepProportions', !settings.keepProportions)}>
-                            <label className="text-gray-400 cursor-pointer">Keep Proportions</label>
+                            <label className="text-gray-300 cursor-pointer">Keep Proportions</label>
                             <div className={`w-8 h-4 rounded-full relative transition-colors ${settings.keepProportions ? 'bg-blue-600' : 'bg-gray-600'}`}>
                                 <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${settings.keepProportions ? 'left-4.5' : 'left-0.5'}`} style={{left: settings.keepProportions ? '18px' : '2px'}}></div>
                             </div>
@@ -513,7 +506,7 @@ export default function VectorPlotter() {
                 </div>
 
                 {/* Position Group */}
-                <div className="border-b border-gray-700 pb-4">
+                <div className="border-b border-white/10 pb-4">
                     <div className="flex items-center gap-2 mb-3 text-blue-400 font-semibold uppercase text-xs tracking-wider">
                         <Move size={14} />
                         Position (mm)
@@ -525,7 +518,7 @@ export default function VectorPlotter() {
                 </div>
 
                 {/* Plotter Config Group */}
-                <div className="border-b border-gray-700 pb-4">
+                <div className="border-b border-white/10 pb-4">
                     <div className="flex items-center gap-2 mb-3 text-blue-400 font-semibold uppercase text-xs tracking-wider">
                         <PenTool size={14} />
                         Plotter Setup
@@ -540,11 +533,23 @@ export default function VectorPlotter() {
                     </div>
                 </div>
 
-                <div className="text-[10px] text-gray-500 text-center">
+                <div className="text-[10px] text-gray-400 text-center">
                     Import .SVG files only.<br/>
                     Paths are traced as lines (Vectors).<br/>
                     No raster dots.
                 </div>
+            </div>
+
+            {/* Bottom Button Area */}
+            <div className="p-4 border-t border-white/10 bg-black/20">
+                <button 
+                    disabled={paths.length === 0 || isProcessing}
+                    onClick={generateGCode}
+                    className={`w-full py-3 rounded font-bold flex items-center justify-center gap-2 transition-all ${paths.length === 0 ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50'}`}
+                >
+                    {isProcessing ? <RefreshCw className="animate-spin" /> : <Download size={18} />}
+                    {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
+                </button>
             </div>
         </div>
 
@@ -558,10 +563,10 @@ export default function VectorPlotter() {
 function Control({ label, value, onChange }) {
     return (
         <div className="flex items-center justify-between">
-            <label className="text-gray-400">{label}</label>
+            <label className="text-gray-300">{label}</label>
             <input 
                 type="number" 
-                className="w-20 bg-[#1e1e1e] border border-gray-600 rounded px-2 py-1 text-right focus:border-blue-500 outline-none transition-colors"
+                className="w-20 bg-black/30 border border-white/10 rounded px-2 py-1 text-right focus:border-blue-500 outline-none transition-colors text-white placeholder-gray-500"
                 value={value}
                 onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
             />
