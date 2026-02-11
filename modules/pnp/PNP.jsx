@@ -5,7 +5,7 @@ import { useConnection } from '../context/ConnectionContext';
 import { uploadGcodeFile } from '../api/gcodeUploader';
 
 const PALETTE_BLOCKS = [
-    { type: 'motion', label: 'Move to Point', icon: '✥' },
+    { type: 'motion', label: 'Move to PointS', icon: '✥' },
     { type: 'vacuum', label: 'Pick & Place ', icon: '◎' },
     { type: 'orient', label: 'Set Orientation', icon: '⟳' },
 ];
