@@ -1,13 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  Upload, 
-  Download, 
-  Settings, 
-  Move, 
-  PenTool, 
-  RefreshCw,
-  Maximize
-} from 'lucide-react';
+import Header from '../components/Header';
 
 // --- Configuration ---
 const DEFAULT_SETTINGS = {
@@ -383,193 +375,156 @@ export default function VectorPlotter() {
   };
 
   return (
-    <div 
-        className="flex flex-col h-screen text-gray-200 font-sans overflow-hidden bg-cover bg-center"
-        style={{
-            backgroundImage: `url('https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2670&auto=format&fit=crop')`, // Dark abstract technical background
-            backgroundColor: '#111' // Fallback
-        }}
-    >
+    <div className="app-container" style={{ position: 'relative', zIndex: 0, display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', fontFamily: '"Segoe UI", Arial, sans-serif', backgroundColor: '#1e1e1e', color: '#eee' }}>
+      <style>{`
+        .app-container::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-image: url('/background_image.png');
+          background-size: 100% 100%;
+          background-position: center;
+          background-repeat: no-repeat;
+          z-index: -2;
+        }
+        .app-container::after {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: rgba(255, 255, 255, 0.15);
+          z-index: -1;
+        }
+        :root { --accent: #007acc; --border: #ccc; }
+        .icon-btn { width: 32px; height: 32px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.08); color: #ccc; cursor: pointer; border-radius: 6px; font-size: 16px; display: flex; justify-content: center; align-items: center; transition: all 0.2s ease; }
+        .icon-btn:hover, .icon-btn.active { background-color: var(--accent); color: white; border-color: transparent; box-shadow: 0 0 10px rgba(0,122,204,0.6); transform: translateY(-1px); }
+        .control-group { margin-bottom: 8px; overflow: hidden; line-height: 24px; border-bottom: 1px solid #ccc; padding-bottom: 4px; color: #333; }
+        .control-group label { font-size: 13px; float: left; font-weight: 500; }
+        .control-group input, .control-group select { float: right; width: 80px; padding: 2px; border: 1px solid #ccc; border-radius: 2px; background: rgba(255,255,255,0.9); color: #333;}
+        .control-group input[type=checkbox] { float: right; width: auto; }
+        .section-header { font-weight: bold; margin-top: 15px; margin-bottom: 5px; color: var(--accent); text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+        .full-width-btn { width: 100%; padding: 10px; background-color: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-top: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .full-width-btn:disabled { background-color: #999; cursor: not-allowed; box-shadow: none; }
+      `}</style>
+
       {/* Hidden Div for Parsing */}
-      <div ref={hiddenSvgRef} style={{position:'absolute', width:0, height:0, visibility:'hidden', pointerEvents:'none'}}></div>
+      <div ref={hiddenSvgRef} style={{ position: 'absolute', width: 0, height: 0, visibility: 'hidden', pointerEvents: 'none' }} />
 
-      {/* Header Removed */}
+      {/* HEADER */}
+      {typeof Header !== 'undefined' && <Header showButtons={false} disableNavigation={false} />}
 
-      <div className="flex flex-1 overflow-hidden relative">
-        
-        {/* Left Toolbar */}
-        <div className="w-16 bg-black/40 backdrop-blur-md border-r border-white/10 flex flex-col items-center py-4 gap-4 z-10 m-4 rounded-xl shadow-2xl">
-          <label className="p-3 rounded-xl bg-white/10 hover:bg-blue-600 hover:text-white transition-all cursor-pointer group tooltip-container">
-            <Upload size={20} />
-            <input ref={fileInputRef} type="file" accept=".svg" className="hidden" onChange={handleFile} />
+      {/* MAIN CONTAINER */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'row', overflow: 'hidden', position: 'relative', marginTop: '72px', backgroundColor: 'transparent' }}>
+
+        {/* LEFT TOOLBAR */}
+        <div style={{ width: '50px', background: 'rgba(255,255,255,0.03)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '15px', zIndex: 10, boxShadow: '5px 5px 15px rgba(0,0,0,0.2)', margin: '15px', borderRadius: '8px', position: 'relative', paddingBottom: '15px' }}>
+          <label className="icon-btn" title="Upload SVG">
+            &#128193;
+            <input ref={fileInputRef} type="file" accept=".svg" onChange={handleFile} style={{ display: 'none' }} />
           </label>
-          <button onClick={() => { setSettings(DEFAULT_SETTINGS); setPaths([]); setSvgContent(null); setView({x:0, y:0, scale:2}); }} className="p-3 rounded-xl bg-white/10 hover:bg-red-500 hover:text-white transition-all">
-             <RefreshCw size={20} />
-          </button>
+          <button className="icon-btn" title="Reset" onClick={() => { setSettings(DEFAULT_SETTINGS); setPaths([]); setSvgContent(null); setView({ x: 0, y: 0, scale: 2 }); }}>&#10227;</button>
+          <div style={{ flexGrow: 1 }} />
         </div>
 
-        {/* Center Workspace */}
-        <div 
-            className="flex-1 relative overflow-hidden bg-transparent cursor-grab active:cursor-grabbing flex justify-center items-center"
-            onWheel={handleWheel}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
+        {/* WORKSPACE CENTER */}
+        <div
+          id="workspace-center"
+          ref={containerRef}
+          className="workspace-center"
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          style={{ flexGrow: 1, backgroundColor: 'transparent', position: 'relative', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', userSelect: 'none', cursor: dragMode === 'VIEW' ? 'grabbing' : 'grab' }}
         >
-             {/* Transform Container (Pan & Zoom) */}
-             <div 
+          <div
+            id="machineBed"
+            style={{
+              width: `${500 * view.scale}px`,
+              height: `${300 * view.scale}px`,
+              backgroundColor: '#e8e8e8',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+              position: 'absolute',
+              transform: 'translate(-50%, -50%)',
+              left: `calc(50% + ${view.x}px)`,
+              top: `calc(50% + ${view.y}px)`,
+              backgroundImage: 'linear-gradient(#d0d0d0 1px, transparent 1px), linear-gradient(90deg, #d0d0d0 1px, transparent 1px)',
+              backgroundSize: `${10 * view.scale}px ${10 * view.scale}px`,
+              backgroundPosition: 'center bottom',
+              transition: dragMode === 'NONE' ? 'width 0.1s, height 0.1s' : 'none',
+            }}
+          >
+            <div id="yAxis" style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: 0, borderLeft: '2px solid #e74c3c', zIndex: 0, pointerEvents: 'none' }} />
+            <div id="xAxis" style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 0, borderBottom: '2px solid #2ecc71', zIndex: 0, pointerEvents: 'none' }} />
+
+            {paths.length > 0 && (
+              <div
+                onMouseDown={handleImageMouseDown}
                 style={{
-                    transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
-                    transformOrigin: 'center center',
-                    transition: dragMode === 'NONE' ? 'transform 0.1s ease-out' : 'none'
+                  position: 'absolute',
+                  left: `${settings.posX * view.scale}px`,
+                  top: `${settings.posY * view.scale}px`,
+                  width: `${settings.width * view.scale}px`,
+                  height: `${settings.height * view.scale}px`,
+                  border: '1px dashed #007acc',
+                  zIndex: 5,
+                  cursor: 'move',
                 }}
-             >
-                 {/* Machine Bed */}
-                 <div 
-                    className="bg-white/90 shadow-[0_10px_50px_rgba(0,0,0,0.8)] relative backdrop-blur-sm"
-                    style={{
-                        width: '500px',
-                        height: '300px',
-                        backgroundImage: `
-                            linear-gradient(#ccc 1px, transparent 1px),
-                            linear-gradient(90deg, #ccc 1px, transparent 1px)
-                        `,
-                        backgroundSize: '10px 10px'
-                    }}
-                 >
-                    {/* Visual Bed Markers */}
-                    <div className="absolute top-0 left-0 text-[10px] text-gray-500 p-1 select-none">0,0</div>
-                    <div className="absolute bottom-1 right-1 text-gray-500 text-xs pointer-events-none select-none">500mm x 300mm</div>
-                    
-                    {/* Axes */}
-                    <div className="absolute left-0 bottom-0 w-full h-px bg-green-600 opacity-60 pointer-events-none"></div>
-                    <div className="absolute left-0 bottom-0 w-px h-full bg-red-600 opacity-60 pointer-events-none"></div>
+              >
+                <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
+              </div>
+            )}
 
-                    {/* The Plot Preview (Draggable Object) */}
-                    {paths.length > 0 && (
-                        <div 
-                            onMouseDown={handleImageMouseDown}
-                            className="absolute border border-dashed border-blue-500 hover:border-solid cursor-move group"
-                            style={{
-                                left: `${settings.posX}px`,
-                                top: `${settings.posY}px`,
-                                width: `${settings.width}px`,
-                                height: `${settings.height}px`,
-                            }}
-                        >
-                            <canvas ref={canvasRef} className="w-full h-full block pointer-events-none" />
-                            
-                            {/* Position Info Tag */}
-                            <div className="absolute -top-6 left-0 text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                X:{settings.posX} Y:{settings.posY}
-                            </div>
-                            
-                            {/* Drag Handle Overlay */}
-                            <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                                <Move size={24} className="text-blue-500" />
-                            </div>
-                        </div>
-                    )}
-                    
-                    {!paths.length && (
-                        <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none opacity-20">
-                            <Upload size={64} />
-                        </div>
-                    )}
-                 </div>
-             </div>
+            {!paths.length && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: '14px', pointerEvents: 'none' }}>
+                Load an SVG
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Right Settings Panel */}
-        <div className="w-[300px] flex flex-col bg-black/40 backdrop-blur-xl border-l border-white/10 z-15 shadow-2xl text-sm">
-            {/* Scrollable Settings Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                
-                {/* Dimensions Group */}
-                <div className="border-b border-white/10 pb-4">
-                    <div className="flex items-center gap-2 mb-3 text-blue-400 font-semibold uppercase text-xs tracking-wider">
-                        <Settings size={14} />
-                        Dimensions (mm)
-                    </div>
-                    <div className="space-y-2">
-                        <Control label="Width" value={settings.width} onChange={v => updateSetting('width', v)} />
-                        <Control label="Height" value={settings.height} onChange={v => updateSetting('height', v)} />
-                        
-                        <div className="flex items-center justify-between cursor-pointer pt-2" onClick={() => updateSetting('keepProportions', !settings.keepProportions)}>
-                            <label className="text-gray-300 cursor-pointer">Keep Proportions</label>
-                            <div className={`w-8 h-4 rounded-full relative transition-colors ${settings.keepProportions ? 'bg-blue-600' : 'bg-gray-600'}`}>
-                                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${settings.keepProportions ? 'left-4.5' : 'left-0.5'}`} style={{left: settings.keepProportions ? '18px' : '2px'}}></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        {/* RIGHT SETTINGS */}
+        <div style={{ width: '350px', minWidth: '350px', background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '-5px 5px 15px rgba(0,0,0,0.15)', zIndex: 15, margin: '15px', borderRadius: '8px', height: 'calc(100% - 30px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
 
-                {/* Position Group */}
-                <div className="border-b border-white/10 pb-4">
-                    <div className="flex items-center gap-2 mb-3 text-blue-400 font-semibold uppercase text-xs tracking-wider">
-                        <Move size={14} />
-                        Position (mm)
-                    </div>
-                    <div className="space-y-2">
-                        <Control label="Pos X" value={settings.posX} onChange={v => updateSetting('posX', v)} />
-                        <Control label="Pos Y" value={settings.posY} onChange={v => updateSetting('posY', v)} />
-                    </div>
-                </div>
-
-                {/* Plotter Config Group */}
-                <div className="border-b border-white/10 pb-4">
-                    <div className="flex items-center gap-2 mb-3 text-blue-400 font-semibold uppercase text-xs tracking-wider">
-                        <PenTool size={14} />
-                        Plotter Setup
-                    </div>
-                    <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                            <Control label="Z Up" value={settings.zUp} onChange={v => updateSetting('zUp', v)} />
-                            <Control label="Z Down" value={settings.zDown} onChange={v => updateSetting('zDown', v)} />
-                        </div>
-                        <Control label="Work Speed" value={settings.workSpeed} onChange={v => updateSetting('workSpeed', v)} />
-                        <Control label="Travel Speed" value={settings.travelSpeed} onChange={v => updateSetting('travelSpeed', v)} />
-                    </div>
-                </div>
-
-                <div className="text-[10px] text-gray-400 text-center">
-                    Import .SVG files only.<br/>
-                    Paths are traced as lines (Vectors).<br/>
-                    No raster dots.
-                </div>
+          {paths.length === 0 && (
+            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(255,255,255,0.6)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', color: '#333', backdropFilter: 'blur(3px)', textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}>
+              Load an SVG to edit
             </div>
+          )}
 
-            {/* Bottom Button Area */}
-            <div className="p-4 border-t border-white/10 bg-black/20">
-                <button 
-                    disabled={paths.length === 0 || isProcessing}
-                    onClick={generateGCode}
-                    className={`w-full py-3 rounded font-bold flex items-center justify-center gap-2 transition-all ${paths.length === 0 ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50'}`}
-                >
-                    {isProcessing ? <RefreshCw className="animate-spin" /> : <Download size={18} />}
-                    {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
-                </button>
+          <div style={{ padding: '15px', overflowY: 'auto', flexGrow: 1 }}>
+            <button className="full-width-btn" onClick={generateGCode} disabled={paths.length === 0 || isProcessing}>
+              {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
+            </button>
+            <br /><br />
+
+            <div className="section-header">Dimensions (mm)</div>
+            <div className="control-group"><label>Width:</label><input type="number" value={settings.width} onChange={(e) => updateSetting('width', parseFloat(e.target.value) || 0)} /></div>
+            <div className="control-group"><label>Height:</label><input type="number" value={settings.height} onChange={(e) => updateSetting('height', parseFloat(e.target.value) || 0)} /></div>
+            <div className="control-group"><label>Keep proportions:</label><input type="checkbox" checked={settings.keepProportions} onChange={(e) => updateSetting('keepProportions', e.target.checked)} /></div>
+
+            <div className="section-header">Position (mm)</div>
+            <div className="control-group"><label>Pos X:</label><input type="number" value={settings.posX} onChange={(e) => updateSetting('posX', parseFloat(e.target.value) || 0)} /></div>
+            <div className="control-group"><label>Pos Y:</label><input type="number" value={settings.posY} onChange={(e) => updateSetting('posY', parseFloat(e.target.value) || 0)} /></div>
+
+            <div className="section-header">Plotter setup</div>
+            <div className="control-group"><label>Z Up:</label><input type="number" value={settings.zUp} onChange={(e) => updateSetting('zUp', parseFloat(e.target.value) || 0)} /></div>
+            <div className="control-group"><label>Z Down:</label><input type="number" value={settings.zDown} onChange={(e) => updateSetting('zDown', parseFloat(e.target.value) || 0)} /></div>
+            <div className="control-group"><label>Work Speed:</label><input type="number" value={settings.workSpeed} onChange={(e) => updateSetting('workSpeed', parseFloat(e.target.value) || 0)} /></div>
+            <div className="control-group"><label>Travel Speed:</label><input type="number" value={settings.travelSpeed} onChange={(e) => updateSetting('travelSpeed', parseFloat(e.target.value) || 0)} /></div>
+
+            <div style={{ fontSize: '10px', color: '#666', marginTop: '15px', textAlign: 'center' }}>
+              Import .SVG files only. Paths are traced as lines (vectors).
             </div>
+          </div>
         </div>
-
       </div>
     </div>
   );
-}
-
-// --- Subcomponents ---
-
-function Control({ label, value, onChange }) {
-    return (
-        <div className="flex items-center justify-between">
-            <label className="text-gray-300">{label}</label>
-            <input 
-                type="number" 
-                className="w-20 bg-black/30 border border-white/10 rounded px-2 py-1 text-right focus:border-blue-500 outline-none transition-colors text-white placeholder-gray-500"
-                value={value}
-                onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-            />
-        </div>
-    )
 }
