@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './Plotter.css';
 
 // --- Configuration ---
@@ -28,71 +28,104 @@ const DEFAULT_SETTINGS = {
   curveResolution: 0.5, // mm per segment for curves
 };
 
+function createItemId() {
+  return 'plot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+}
+
+// Single image block on the bed (canvas + position)
+function PlotItem({ item, scale, isSelected }) {
+  const canvasRef = useRef(null);
+  const { paths, settings, originalSize } = item;
+  useEffect(() => {
+    if (!canvasRef.current || !paths || paths.length === 0) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const scaleFactorX = settings.width / originalSize.w;
+    const scaleFactorY = settings.height / originalSize.h;
+    const renderScale = 2;
+    canvas.width = settings.width * renderScale;
+    canvas.height = settings.height * renderScale;
+    ctx.scale(renderScale, renderScale);
+    ctx.clearRect(0, 0, settings.width, settings.height);
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 0.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    paths.forEach((poly) => {
+      if (poly.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(poly[0].x * scaleFactorX, poly[0].y * scaleFactorY);
+      for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x * scaleFactorX, poly[i].y * scaleFactorY);
+      ctx.stroke();
+    });
+  }, [paths, settings.width, settings.height, originalSize]);
+  return (
+    <div
+      data-plot-item
+      data-id={item.id}
+      style={{
+        position: 'absolute',
+        left: `${(BED_CENTER_X_MM + settings.posX) * scale}px`,
+        top: `${(BED_HEIGHT_MM - settings.posY - settings.height) * scale}px`,
+        width: `${settings.width * scale}px`,
+        height: `${settings.height * scale}px`,
+        border: isSelected ? '2px dashed var(--accent)' : '1px dashed rgba(255,255,255,0.3)',
+        zIndex: isSelected ? 10 : 5,
+        cursor: 'move',
+      }}
+    >
+      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
+    </div>
+  );
+}
+
 export default function VectorPlotter() {
-  // --- State ---
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [svgContent, setSvgContent] = useState(null);
-  const [fileName, setFileName] = useState('plot');
-  const [paths, setPaths] = useState([]); // Array of polylines (arrays of points {x,y})
+  // --- State: multiple images ---
+  const [items, setItems] = useState([]); // [{ id, name, paths, settings, originalSize }, ...]
+  const [activeId, setActiveId] = useState(null);
   
   // View State: x/y for panning the bed, scale for zoom
   const [view, setView] = useState({ x: 0, y: 0, scale: 2.0 });
   const [isProcessing, setIsProcessing] = useState(false);
-  const [originalSize, setOriginalSize] = useState({ w: 100, h: 100 });
 
   // --- Interaction State ---
   const [dragMode, setDragMode] = useState('NONE'); // 'NONE', 'VIEW', 'IMAGE'
   const lastMousePos = useRef({ x: 0, y: 0 });
+  const dragItemIdRef = useRef(null);
 
   // --- Refs ---
-  const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const containerRef = useRef(null);
   const hiddenSvgRef = useRef(null); // For parsing path geometry
+
+  const activeItem = items.find((i) => i.id === activeId);
 
   // --- Helpers (1 decimal place for settings) ---
   const round = (num) => Math.round(num * 10) / 10;
   const round1 = (num) => (typeof num === 'number' && !Number.isNaN(num) ? Math.round(num * 10) / 10 : num);
 
-  // --- SVG Parsing Engine ---
+  // --- SVG Parsing Engine (returns { paths, origW, origH } or null) ---
   const parseSVG = (svgText) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgText, "image/svg+xml");
     const svgEl = doc.querySelector("svg");
-    
-    if (!svgEl) return alert("Invalid SVG file");
+    if (!svgEl) return null;
 
-    // 1. Determine Original Size
     let viewBox = svgEl.getAttribute("viewBox");
     let origW, origH;
-
     if (viewBox) {
-        const vb = viewBox.split(/\s+|,/).filter(Boolean).map(parseFloat);
-        origW = vb[2];
-        origH = vb[3];
+      const vb = viewBox.split(/\s+|,/).filter(Boolean).map(parseFloat);
+      origW = vb[2];
+      origH = vb[3];
     } else {
-        // Fallback to width/height attributes, stripping 'px', 'mm' etc
-        origW = parseFloat(svgEl.getAttribute("width")) || 100;
-        origH = parseFloat(svgEl.getAttribute("height")) || 100;
+      origW = parseFloat(svgEl.getAttribute("width")) || 100;
+      origH = parseFloat(svgEl.getAttribute("height")) || 100;
     }
-    
-    setOriginalSize({ w: origW, h: origH });
-    
-    // Set initial width to 100 (mm), height scaled to keep aspect ratio
-    const initialWidth = 100;
-    const initialHeight = origW > 0 ? round(initialWidth * (origH / origW)) : initialWidth;
-    setSettings(prev => ({
-        ...prev,
-        width: initialWidth,
-        height: initialHeight,
-        scale: 1
-    }));
 
-    // 2. Flatten and Extract Paths
-    if (hiddenSvgRef.current) {
-        hiddenSvgRef.current.innerHTML = svgText;
-        const svgDom = hiddenSvgRef.current.querySelector('svg');
-        if (!svgDom) return;
+    if (!hiddenSvgRef.current) return { paths: [], origW, origH };
+    hiddenSvgRef.current.innerHTML = svgText;
+    const svgDom = hiddenSvgRef.current.querySelector('svg');
+    if (!svgDom) return { paths: [], origW, origH };
 
         svgDom.setAttribute('width', '100%');
         svgDom.setAttribute('height', '100%');
@@ -191,152 +224,137 @@ export default function VectorPlotter() {
             sampleElement(el, extractedPaths);
         });
 
-        // Remove temporary use-expansion groups
         tempGroups.forEach(g => g.remove());
-
-        setPaths(extractedPaths);
-        hiddenSvgRef.current.innerHTML = '';
-    }
+    hiddenSvgRef.current.innerHTML = '';
+    return { paths: extractedPaths, origW, origH };
   };
 
-  // --- Logic: Preview Rendering ---
-  useEffect(() => {
-    if (!canvasRef.current || paths.length === 0) return;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    
-    // Scale Factor = settings.width / originalSize.w
-    const scaleFactorX = settings.width / originalSize.w;
-    const scaleFactorY = settings.height / originalSize.h;
-    
-    // Resolution for canvas (higher for crispness)
-    const renderScale = 2; 
-    canvas.width = settings.width * renderScale;
-    canvas.height = settings.height * renderScale;
-    
-    ctx.scale(renderScale, renderScale);
-    ctx.clearRect(0, 0, settings.width, settings.height);
-    
-    // Style
-    ctx.strokeStyle = "#2563eb"; // Blue lines
-    ctx.lineWidth = 0.5;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    paths.forEach(poly => {
-        if (poly.length < 2) return;
-        ctx.beginPath();
-        // Move to first point (scaled)
-        ctx.moveTo(poly[0].x * scaleFactorX, poly[0].y * scaleFactorY);
-        
-        for (let i = 1; i < poly.length; i++) {
-            ctx.lineTo(poly[i].x * scaleFactorX, poly[i].y * scaleFactorY);
-        }
-        ctx.stroke();
+  const addItemsFromParsed = (name, paths, origW, origH) => {
+    if (!paths || paths.length === 0) return;
+    const initialWidth = 100;
+    const initialHeight = origW > 0 ? round(initialWidth * (origH / origW)) : initialWidth;
+    setItems((prev) => {
+      const offset = prev.length * 22;
+      const newItem = {
+        id: createItemId(),
+        name,
+        paths,
+        originalSize: { w: origW, h: origH },
+        settings: {
+          ...DEFAULT_SETTINGS,
+          width: initialWidth,
+          height: initialHeight,
+          posX: Math.max(-250, -offset),
+          posY: Math.min(300 - initialHeight, offset),
+        },
+      };
+      setActiveId(newItem.id);
+      return [...prev, newItem];
     });
+  };
 
-  }, [paths, settings.width, settings.height, originalSize]);
-
-
-  // --- Logic: G-Code Generation ---
+  // --- Logic: G-Code Generation (all items) ---
   const generateGCode = async () => {
-    if (paths.length === 0) return;
+    if (items.length === 0) return;
     setIsProcessing(true);
-    await new Promise(r => setTimeout(r, 100)); // UI Refresh
+    await new Promise(r => setTimeout(r, 100));
 
     try {
-        const gcode = [];
-        const scaleX = settings.width / originalSize.w;
-        const scaleY = settings.height / originalSize.h;
-        
-        // Header
-        gcode.push(`; Generated by VectorPlotter Studio`);
-        gcode.push(`; Dimensions: ${settings.width}mm x ${settings.height}mm`);
-        gcode.push(`; Pen Up: ${settings.zUp}mm`);
-        gcode.push(`; Pen Down: ${settings.zDown}mm`);
-        gcode.push(`G90`); // Absolute positioning
-        gcode.push(`G21`); // Units mm
-        gcode.push(`G0 Z${settings.zUp} F${settings.travelSpeed}`); // Safe Z
-        gcode.push(`G0 X0 Y0 F${settings.travelSpeed}`); // Home
+      const gcode = [];
+      const first = items[0].settings;
+      gcode.push(`; Generated by VectorPlotter Studio`);
+      gcode.push(`G90`);
+      gcode.push(`G21`);
+      gcode.push(`G0 Z${first.zUp} F${first.travelSpeed}`);
+      gcode.push(`G0 X0 Y0 F${first.travelSpeed}`);
 
-        // Process Paths
-        paths.forEach(poly => {
-            if (poly.length < 2) return;
-
-            // 1. Move to Start (Pen Up)
-            const startX = round((poly[0].x * scaleX) + settings.posX);
-            const startY = round((poly[0].y * scaleY) + settings.posY); 
-            
-            gcode.push(`G0 X${startX} Y${startY} F${settings.travelSpeed}`);
-            
-            // 2. Pen Down
-            gcode.push(`G1 Z${settings.zDown} F${settings.workSpeed}`);
-            
-            // 3. Draw Path
-            for (let i = 1; i < poly.length; i++) {
-                const x = round((poly[i].x * scaleX) + settings.posX);
-                const y = round((poly[i].y * scaleY) + settings.posY);
-                gcode.push(`G1 X${x} Y${y} F${settings.workSpeed}`);
-            }
-
-            // 4. Pen Up
-            gcode.push(`G0 Z${settings.zUp} F${settings.travelSpeed}`);
+      items.forEach((item) => {
+        const { paths: itemPaths, settings: s, originalSize: os } = item;
+        if (!itemPaths || itemPaths.length === 0) return;
+        const scaleX = s.width / os.w;
+        const scaleY = s.height / os.h;
+        gcode.push(`; --- ${item.name} ---`);
+        itemPaths.forEach((poly) => {
+          if (poly.length < 2) return;
+          const startX = round((poly[0].x * scaleX) + s.posX);
+          const startY = round((poly[0].y * scaleY) + s.posY);
+          gcode.push(`G0 X${startX} Y${startY} F${s.travelSpeed}`);
+          gcode.push(`G1 Z${s.zDown} F${s.workSpeed}`);
+          for (let i = 1; i < poly.length; i++) {
+            const x = round((poly[i].x * scaleX) + s.posX);
+            const y = round((poly[i].y * scaleY) + s.posY);
+            gcode.push(`G1 X${x} Y${y} F${s.workSpeed}`);
+          }
+          gcode.push(`G0 Z${s.zUp} F${s.travelSpeed}`);
         });
+      });
 
-        // Footer
-        gcode.push(`G0 X0 Y0 F${settings.travelSpeed}`);
-        gcode.push(`M2`); // End program
+      gcode.push(`G0 X0 Y0 F${first.travelSpeed}`);
+      gcode.push(`M2`);
 
-        // Download
-        const blob = new Blob([gcode.join("\n")], { type: "text/plain" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${fileName}_plot.gcode`;
-        a.click();
-        URL.revokeObjectURL(url);
-
+      const blob = new Blob([gcode.join("\n")], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `plot_${items.length}items.gcode`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e) {
-        console.error(e);
-        alert("Error generating G-code");
+      console.error(e);
+      alert("Error generating G-code");
     } finally {
-        setIsProcessing(false);
+      setIsProcessing(false);
     }
   };
 
 
   // --- Handlers: File & Settings ---
   const handleFile = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      
-      if (!file.name.toLowerCase().endsWith('.svg')) {
-          alert("Please select an SVG file.");
-          return;
-      }
-
-      setFileName(file.name.replace('.svg', ''));
-      
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const svgFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.svg'));
+    if (svgFiles.length === 0) {
+      alert("Please select one or more SVG files.");
+      e.target.value = '';
+      return;
+    }
+    svgFiles.forEach((file) => {
       const reader = new FileReader();
       reader.onload = (ev) => {
-          setSvgContent(ev.target.result);
-          parseSVG(ev.target.result);
+        const result = parseSVG(ev.target.result);
+        if (result && result.paths && result.paths.length > 0) {
+          const name = file.name.replace(/\.svg$/i, '');
+          addItemsFromParsed(name, result.paths, result.origW, result.origH);
+        }
       };
       reader.readAsText(file);
+    });
+    e.target.value = '';
   };
 
   const updateSetting = (key, value) => {
-      const numVal = typeof value === 'number' && !Number.isNaN(value) ? round1(value) : value;
-      setSettings(prev => {
-          const next = { ...prev, [key]: numVal };
-          if (prev.keepProportions && originalSize.w > 0 && (key === 'width' || key === 'height')) {
-              const aspect = originalSize.w / originalSize.h;
-              if (key === 'width') next.height = round1(numVal / aspect);
-              if (key === 'height') next.width = round1(numVal * aspect);
-          }
-          return next;
-      });
+    if (!activeId) return;
+    const numVal = typeof value === 'number' && !Number.isNaN(value) ? round1(value) : value;
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== activeId) return it;
+        const next = { ...it, settings: { ...it.settings, [key]: numVal } };
+        if (it.settings.keepProportions && it.originalSize.w > 0 && (key === 'width' || key === 'height')) {
+          const aspect = it.originalSize.w / it.originalSize.h;
+          if (key === 'width') next.settings.height = round1(numVal / aspect);
+          if (key === 'height') next.settings.width = round1(numVal * aspect);
+        }
+        return next;
+      })
+    );
+  };
+
+  const deleteItem = (id) => {
+    setItems((prev) => {
+      const next = prev.filter((i) => i.id !== id);
+      if (activeId === id) setActiveId(next.length ? next[0].id : null);
+      return next;
+    });
   };
 
   // --- Handlers: Interactive Workspace ---
@@ -352,49 +370,51 @@ export default function VectorPlotter() {
   };
 
   const handleMouseDown = (e) => {
-    // Left click (button 0) triggers PAN on background, or DRAG on object
-    if (e.button === 0) {
-        setDragMode('VIEW'); // Default to panning view
-        lastMousePos.current = { x: e.clientX, y: e.clientY };
+    const plotItemEl = e.target.closest('[data-plot-item]');
+    if (plotItemEl && e.button === 0) {
+      e.stopPropagation();
+      const id = plotItemEl.dataset.id;
+      setActiveId(id);
+      dragItemIdRef.current = id;
+      setDragMode('IMAGE');
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+      return;
     }
-  };
-
-  const handleImageMouseDown = (e) => {
-    e.stopPropagation(); // Stop bubbling to background
     if (e.button === 0) {
-        setDragMode('IMAGE');
-        lastMousePos.current = { x: e.clientX, y: e.clientY };
+      setDragMode('VIEW');
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
     }
   };
 
   const handleMouseMove = (e) => {
     if (dragMode === 'NONE') return;
-
     const dx = e.clientX - lastMousePos.current.x;
     const dy = e.clientY - lastMousePos.current.y;
     lastMousePos.current = { x: e.clientX, y: e.clientY };
 
     if (dragMode === 'VIEW') {
-        setView(prev => ({
-            ...prev,
-            x: prev.x + dx,
-            y: prev.y + dy
-        }));
-    } else if (dragMode === 'IMAGE') {
-        // posX: left = -250, center = 0, right = +250. posY: bottom = 0, up = +. Dragging down (dy>0) = decrease posY.
-        const dxMm = dx / view.scale;
-        const dyMm = -dy / view.scale;
-        setSettings(prev => {
-            const minX = -250;
-            const maxX = 250 - prev.width;
-            const minY = 0;
-            const maxY = Math.max(0, 300 - prev.height);
-            return {
-                ...prev,
-                posX: round(Math.max(minX, Math.min(maxX, prev.posX + dxMm))),
-                posY: round(Math.max(minY, Math.min(maxY, prev.posY + dyMm)))
-            };
-        });
+      setView((prev) => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+    } else if (dragMode === 'IMAGE' && dragItemIdRef.current) {
+      const dxMm = dx / view.scale;
+      const dyMm = -dy / view.scale;
+      setItems((prev) =>
+        prev.map((it) => {
+          if (it.id !== dragItemIdRef.current) return it;
+          const s = it.settings;
+          const minX = -250;
+          const maxX = 250 - s.width;
+          const minY = 0;
+          const maxY = Math.max(0, 300 - s.height);
+          return {
+            ...it,
+            settings: {
+              ...s,
+              posX: round(Math.max(minX, Math.min(maxX, s.posX + dxMm))),
+              posY: round(Math.max(minY, Math.min(maxY, s.posY + dyMm))),
+            },
+          };
+        })
+      );
     }
   };
 
@@ -409,11 +429,11 @@ export default function VectorPlotter() {
       <div id="main-container">
         {/* LEFT TOOLBAR */}
         <div className="plotter-toolbar">
-          <label className="plotter-icon-btn" title="Upload SVG">
+          <label className="plotter-icon-btn" title="Upload SVG (one or more)">
             &#128193;
-            <input ref={fileInputRef} type="file" accept=".svg" onChange={handleFile} style={{ display: 'none' }} />
+            <input ref={fileInputRef} type="file" accept=".svg" multiple onChange={handleFile} style={{ display: 'none' }} />
           </label>
-          <button className="plotter-icon-btn" title="Reset" onClick={() => { setSettings(DEFAULT_SETTINGS); setPaths([]); setSvgContent(null); setView({ x: 0, y: 0, scale: 2 }); }}>&#10227;</button>
+          <button className="plotter-icon-btn" title="Reset" onClick={() => { setItems([]); setActiveId(null); setView({ x: 0, y: 0, scale: 2 }); }}>&#10227;</button>
           <div style={{ flexGrow: 1 }} />
         </div>
 
@@ -453,27 +473,18 @@ export default function VectorPlotter() {
             <div style={{ position: 'absolute', left: '50%', bottom: 4, transform: 'translateX(-50%)', fontSize: 10, color: '#666', pointerEvents: 'none' }}>0,0</div>
             <div style={{ position: 'absolute', right: 4, bottom: 4, fontSize: 10, color: '#666', pointerEvents: 'none' }}>250,0</div>
 
-            {paths.length > 0 && (
-              <div
-                onMouseDown={handleImageMouseDown}
-                style={{
-                  position: 'absolute',
-                  left: `${(BED_CENTER_X_MM + settings.posX) * view.scale}px`,
-                  top: `${(BED_HEIGHT_MM - settings.posY - settings.height) * view.scale}px`,
-                  width: `${settings.width * view.scale}px`,
-                  height: `${settings.height * view.scale}px`,
-                  border: '1px dashed var(--accent)',
-                  zIndex: 5,
-                  cursor: 'move',
-                }}
-              >
-                <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
-              </div>
-            )}
+            {items.map((item) => (
+              <PlotItem
+                key={item.id}
+                item={item}
+                scale={view.scale}
+                isSelected={activeId === item.id}
+              />
+            ))}
 
-            {!paths.length && (
+            {items.length === 0 && (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px', pointerEvents: 'none' }}>
-                Load an SVG
+                Load one or more SVGs
               </div>
             )}
           </div>
@@ -481,34 +492,61 @@ export default function VectorPlotter() {
 
         {/* RIGHT SETTINGS */}
         <div className="plotter-settings">
-          {paths.length === 0 && (
+          {items.length === 0 && (
             <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', color: 'var(--text-muted)', backdropFilter: 'blur(4px)' }}>
-              Load an SVG to edit
+              Load one or more SVGs to edit
             </div>
           )}
 
           <div style={{ padding: '20px', overflowY: 'auto', flexGrow: 1 }}>
-            <button className="plotter-full-width-btn" onClick={generateGCode} disabled={paths.length === 0 || isProcessing}>
+            <button className="plotter-full-width-btn" onClick={generateGCode} disabled={items.length === 0 || isProcessing}>
               {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
             </button>
 
-            <div className="plotter-section-header">Dimensions (mm)</div>
-            <div className="plotter-control-group"><label>Width:</label><input type="number" step="0.1" value={settings.width} onChange={(e) => updateSetting('width', parseFloat(e.target.value) || 0)} /></div>
-            <div className="plotter-control-group"><label>Height:</label><input type="number" step="0.1" value={settings.height} onChange={(e) => updateSetting('height', parseFloat(e.target.value) || 0)} /></div>
-            <div className="plotter-control-group"><label>Keep proportions:</label><input type="checkbox" checked={settings.keepProportions} onChange={(e) => updateSetting('keepProportions', e.target.checked)} /></div>
+            {items.length > 0 && (
+              <div className="plotter-section-header" style={{ marginTop: 12 }}>Layers ({items.length})</div>
+            )}
+            {items.length > 0 && (
+              <div style={{ marginBottom: 8, maxHeight: 120, overflowY: 'auto' }}>
+                {items.map((it) => (
+                  <div
+                    key={it.id}
+                    onClick={() => setActiveId(it.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '6px 8px', marginBottom: 4, borderRadius: 6, cursor: 'pointer',
+                      background: activeId === it.id ? 'rgba(0,210,255,0.2)' : 'rgba(255,255,255,0.05)',
+                      border: activeId === it.id ? '1px solid var(--accent)' : '1px solid transparent',
+                    }}
+                  >
+                    <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{it.name}</span>
+                    <button type="button" onClick={(ev) => { ev.stopPropagation(); deleteItem(it.id); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0 4px', fontSize: 14 }} title="Remove">×</button>
+                  </div>
+                ))}
+              </div>
+            )}
 
-            <div className="plotter-section-header">Position (mm)</div>
-            <div className="plotter-control-group"><label>Pos X:</label><input type="number" step="0.1" value={settings.posX} onChange={(e) => updateSetting('posX', parseFloat(e.target.value) || 0)} /></div>
-            <div className="plotter-control-group"><label>Pos Y:</label><input type="number" step="0.1" value={settings.posY} onChange={(e) => updateSetting('posY', parseFloat(e.target.value) || 0)} /></div>
+            {activeItem && (
+              <>
+                <div className="plotter-section-header">Dimensions (mm) — {activeItem.name}</div>
+                <div className="plotter-control-group"><label>Width:</label><input type="number" step="0.1" value={activeItem.settings.width} onChange={(e) => updateSetting('width', parseFloat(e.target.value) || 0)} /></div>
+                <div className="plotter-control-group"><label>Height:</label><input type="number" step="0.1" value={activeItem.settings.height} onChange={(e) => updateSetting('height', parseFloat(e.target.value) || 0)} /></div>
+                <div className="plotter-control-group"><label>Keep proportions:</label><input type="checkbox" checked={activeItem.settings.keepProportions} onChange={(e) => updateSetting('keepProportions', e.target.checked)} /></div>
 
-            <div className="plotter-section-header">Plotter setup</div>
-            <div className="plotter-control-group"><label>Z Up:</label><input type="number" step="0.1" value={settings.zUp} onChange={(e) => updateSetting('zUp', parseFloat(e.target.value) || 0)} /></div>
-            <div className="plotter-control-group"><label>Z Down:</label><input type="number" step="0.1" value={settings.zDown} onChange={(e) => updateSetting('zDown', parseFloat(e.target.value) || 0)} /></div>
-            <div className="plotter-control-group"><label>Work Speed:</label><input type="number" step="0.1" value={settings.workSpeed} onChange={(e) => updateSetting('workSpeed', parseFloat(e.target.value) || 0)} /></div>
-            <div className="plotter-control-group"><label>Travel Speed:</label><input type="number" step="0.1" value={settings.travelSpeed} onChange={(e) => updateSetting('travelSpeed', parseFloat(e.target.value) || 0)} /></div>
+                <div className="plotter-section-header">Position (mm)</div>
+                <div className="plotter-control-group"><label>Pos X:</label><input type="number" step="0.1" value={activeItem.settings.posX} onChange={(e) => updateSetting('posX', parseFloat(e.target.value) || 0)} /></div>
+                <div className="plotter-control-group"><label>Pos Y:</label><input type="number" step="0.1" value={activeItem.settings.posY} onChange={(e) => updateSetting('posY', parseFloat(e.target.value) || 0)} /></div>
+
+                <div className="plotter-section-header">Plotter setup</div>
+                <div className="plotter-control-group"><label>Z Up:</label><input type="number" step="0.1" value={activeItem.settings.zUp} onChange={(e) => updateSetting('zUp', parseFloat(e.target.value) || 0)} /></div>
+                <div className="plotter-control-group"><label>Z Down:</label><input type="number" step="0.1" value={activeItem.settings.zDown} onChange={(e) => updateSetting('zDown', parseFloat(e.target.value) || 0)} /></div>
+                <div className="plotter-control-group"><label>Work Speed:</label><input type="number" step="0.1" value={activeItem.settings.workSpeed} onChange={(e) => updateSetting('workSpeed', parseFloat(e.target.value) || 0)} /></div>
+                <div className="plotter-control-group"><label>Travel Speed:</label><input type="number" step="0.1" value={activeItem.settings.travelSpeed} onChange={(e) => updateSetting('travelSpeed', parseFloat(e.target.value) || 0)} /></div>
+              </>
+            )}
 
             <div className="plotter-hint">
-              Import .SVG files only. Paths are traced as lines (vectors).
+              Upload one or more .SVG files. Paths are traced as lines (vectors).
             </div>
           </div>
         </div>
