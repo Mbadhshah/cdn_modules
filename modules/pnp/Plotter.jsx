@@ -314,7 +314,7 @@ export default function VectorPlotter() {
     if (!files || files.length === 0) return;
     const svgFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.svg'));
     if (svgFiles.length === 0) {
-      alert("Please select one or more SVG files.");
+      alert("Please select image files (SVG).");
       e.target.value = '';
       return;
     }
@@ -429,7 +429,7 @@ export default function VectorPlotter() {
       <div id="main-container">
         {/* LEFT TOOLBAR */}
         <div className="plotter-toolbar">
-          <label className="plotter-icon-btn" title="Upload SVG (one or more)">
+          <label className="plotter-icon-btn" title="Upload images">
             &#128193;
             <input ref={fileInputRef} type="file" accept=".svg" multiple onChange={handleFile} style={{ display: 'none' }} />
           </label>
@@ -484,7 +484,7 @@ export default function VectorPlotter() {
 
             {items.length === 0 && (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px', pointerEvents: 'none' }}>
-                Load one or more SVGs
+                Load images
               </div>
             )}
           </div>
@@ -494,7 +494,7 @@ export default function VectorPlotter() {
         <div className="plotter-settings">
           {items.length === 0 && (
             <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', color: 'var(--text-muted)', backdropFilter: 'blur(4px)' }}>
-              Load one or more SVGs to edit
+              Load images
             </div>
           )}
 
@@ -503,9 +503,6 @@ export default function VectorPlotter() {
               {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
             </button>
 
-            {items.length > 0 && (
-              <div className="plotter-section-header" style={{ marginTop: 12 }}>Layers ({items.length})</div>
-            )}
             {items.length > 0 && (
               <div style={{ marginBottom: 8, maxHeight: 120, overflowY: 'auto' }}>
                 {items.map((it) => (
@@ -528,7 +525,7 @@ export default function VectorPlotter() {
 
             {activeItem && (
               <>
-                <div className="plotter-section-header">Dimensions (mm) — {activeItem.name}</div>
+                <div className="plotter-section-header">Dimensions (mm)</div>
                 <div className="plotter-control-group"><label>Width:</label><input type="number" step="0.1" value={activeItem.settings.width} onChange={(e) => updateSetting('width', parseFloat(e.target.value) || 0)} /></div>
                 <div className="plotter-control-group"><label>Height:</label><input type="number" step="0.1" value={activeItem.settings.height} onChange={(e) => updateSetting('height', parseFloat(e.target.value) || 0)} /></div>
                 <div className="plotter-control-group"><label>Keep proportions:</label><input type="checkbox" checked={activeItem.settings.keepProportions} onChange={(e) => updateSetting('keepProportions', e.target.checked)} /></div>
@@ -546,7 +543,7 @@ export default function VectorPlotter() {
             )}
 
             <div className="plotter-hint">
-              Upload one or more .SVG files. Paths are traced as lines (vectors).
+              Load images (.SVG). Paths are traced as lines (vectors).
             </div>
           </div>
         </div>
