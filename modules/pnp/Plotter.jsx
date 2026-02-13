@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Header from '../components/Header';
 
 // --- Configuration ---
 const DEFAULT_SETTINGS = {
@@ -375,89 +374,89 @@ export default function VectorPlotter() {
   };
 
   return (
-    <div className="app-container" style={{ position: 'relative', zIndex: 0, display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', fontFamily: '"Segoe UI", Arial, sans-serif', backgroundColor: '#1e1e1e', color: '#eee' }}>
+    <div className="roboblock-studio-body">
       <style>{`
-        .app-container::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-image: url('/background_image.png');
-          background-size: 100% 100%;
-          background-position: center;
-          background-repeat: no-repeat;
-          z-index: -2;
+        .roboblock-studio-body {
+          margin: 0;
+          height: calc(100vh - 72px);
+          width: 100%;
+          background: none;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          --glass-bg: rgba(255, 255, 255, 0.07);
+          --glass-border: rgba(255, 255, 255, 0.1);
+          --accent: #00d2ff;
+          --text: #ffffff;
+          --text-muted: rgba(255, 255, 255, 0.5);
+          color: var(--text);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
         }
-        .app-container::after {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-color: rgba(255, 255, 255, 0.15);
-          z-index: -1;
+        #main-container {
+          display: flex;
+          flex: 1;
+          overflow: hidden;
+          height: 100%;
+          gap: clamp(15px, 1.5vw, 25px);
+          padding: clamp(20px, 2vw, 30px);
+          min-height: 0;
+          box-sizing: border-box;
         }
-        :root { --accent: #007acc; --border: #ccc; }
-        .icon-btn { width: 32px; height: 32px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.08); color: #ccc; cursor: pointer; border-radius: 6px; font-size: 16px; display: flex; justify-content: center; align-items: center; transition: all 0.2s ease; }
-        .icon-btn:hover, .icon-btn.active { background-color: var(--accent); color: white; border-color: transparent; box-shadow: 0 0 10px rgba(0,122,204,0.6); transform: translateY(-1px); }
-        .control-group { margin-bottom: 8px; overflow: hidden; line-height: 24px; border-bottom: 1px solid #ccc; padding-bottom: 4px; color: #333; }
-        .control-group label { font-size: 13px; float: left; font-weight: 500; }
-        .control-group input, .control-group select { float: right; width: 80px; padding: 2px; border: 1px solid #ccc; border-radius: 2px; background: rgba(255,255,255,0.9); color: #333;}
-        .control-group input[type=checkbox] { float: right; width: auto; }
-        .section-header { font-weight: bold; margin-top: 15px; margin-bottom: 5px; color: var(--accent); text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
-        .full-width-btn { width: 100%; padding: 10px; background-color: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-top: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
-        .full-width-btn:disabled { background-color: #999; cursor: not-allowed; box-shadow: none; }
+        .plotter-toolbar { width: 56px; min-width: 56px; background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); display: flex; flex-direction: column; align-items: center; padding: 20px; gap: 12px; }
+        .plotter-workspace { flex: 1; min-width: 0; background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); position: relative; display: flex; overflow: hidden; }
+        .plotter-settings { width: 320px; min-width: 320px; background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); display: flex; flex-direction: column; overflow: hidden; }
+        .plotter-icon-btn { width: 40px; height: 40px; border: 1px solid var(--glass-border); background: rgba(255,255,255,0.08); color: var(--text-muted); cursor: pointer; border-radius: 12px; font-size: 18px; display: flex; justify-content: center; align-items: center; transition: all 0.2s; }
+        .plotter-icon-btn:hover { background: var(--accent); color: #000; border-color: var(--accent); box-shadow: 0 0 12px rgba(0,210,255,0.4); }
+        .plotter-section-header { font-weight: bold; margin-top: 12px; margin-bottom: 6px; color: var(--accent); text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+        .plotter-control-group { margin-bottom: 8px; overflow: hidden; line-height: 24px; border-bottom: 1px solid var(--glass-border); padding-bottom: 6px; color: var(--text); }
+        .plotter-control-group label { font-size: 13px; float: left; font-weight: 500; color: var(--text-muted); }
+        .plotter-control-group input { float: right; width: 90px; padding: 4px 8px; border: 1px solid var(--glass-border); border-radius: 6px; background: rgba(0,0,0,0.3); color: var(--text); }
+        .plotter-control-group input[type=checkbox] { float: right; width: auto; }
+        .plotter-full-width-btn { width: 100%; padding: 12px; background: rgba(0, 210, 255, 0.2); border: 1px solid var(--accent); border-radius: 12px; color: var(--accent); cursor: pointer; font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 12px; transition: all 0.2s; }
+        .plotter-full-width-btn:hover:not(:disabled) { background: rgba(0, 210, 255, 0.3); box-shadow: 0 0 12px rgba(0,210,255,0.3); }
+        .plotter-full-width-btn:disabled { opacity: 0.5; cursor: not-allowed; }
       `}</style>
 
-      {/* Hidden Div for Parsing */}
       <div ref={hiddenSvgRef} style={{ position: 'absolute', width: 0, height: 0, visibility: 'hidden', pointerEvents: 'none' }} />
 
-      {/* HEADER */}
-      {typeof Header !== 'undefined' && <Header showButtons={false} disableNavigation={false} />}
-
-      {/* MAIN CONTAINER */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'row', overflow: 'hidden', position: 'relative', marginTop: '72px', backgroundColor: 'transparent' }}>
-
+      <div id="main-container">
         {/* LEFT TOOLBAR */}
-        <div style={{ width: '50px', background: 'rgba(255,255,255,0.03)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '15px', zIndex: 10, boxShadow: '5px 5px 15px rgba(0,0,0,0.2)', margin: '15px', borderRadius: '8px', position: 'relative', paddingBottom: '15px' }}>
-          <label className="icon-btn" title="Upload SVG">
+        <div className="plotter-toolbar">
+          <label className="plotter-icon-btn" title="Upload SVG">
             &#128193;
             <input ref={fileInputRef} type="file" accept=".svg" onChange={handleFile} style={{ display: 'none' }} />
           </label>
-          <button className="icon-btn" title="Reset" onClick={() => { setSettings(DEFAULT_SETTINGS); setPaths([]); setSvgContent(null); setView({ x: 0, y: 0, scale: 2 }); }}>&#10227;</button>
+          <button className="plotter-icon-btn" title="Reset" onClick={() => { setSettings(DEFAULT_SETTINGS); setPaths([]); setSvgContent(null); setView({ x: 0, y: 0, scale: 2 }); }}>&#10227;</button>
           <div style={{ flexGrow: 1 }} />
         </div>
 
         {/* WORKSPACE CENTER */}
         <div
-          id="workspace-center"
+          className="plotter-workspace"
           ref={containerRef}
-          className="workspace-center"
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          style={{ flexGrow: 1, backgroundColor: 'transparent', position: 'relative', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', userSelect: 'none', cursor: dragMode === 'VIEW' ? 'grabbing' : 'grab' }}
+          style={{ cursor: dragMode === 'VIEW' ? 'grabbing' : 'grab', justifyContent: 'center', alignItems: 'center', userSelect: 'none' }}
         >
           <div
             id="machineBed"
             style={{
               width: `${500 * view.scale}px`,
               height: `${300 * view.scale}px`,
-              backgroundColor: '#e8e8e8',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+              backgroundColor: 'rgba(232,232,232,0.95)',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
               position: 'absolute',
               transform: 'translate(-50%, -50%)',
               left: `calc(50% + ${view.x}px)`,
               top: `calc(50% + ${view.y}px)`,
-              backgroundImage: 'linear-gradient(#d0d0d0 1px, transparent 1px), linear-gradient(90deg, #d0d0d0 1px, transparent 1px)',
+              backgroundImage: 'linear-gradient(rgba(200,200,200,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(200,200,200,0.8) 1px, transparent 1px)',
               backgroundSize: `${10 * view.scale}px ${10 * view.scale}px`,
               backgroundPosition: 'center bottom',
               transition: dragMode === 'NONE' ? 'width 0.1s, height 0.1s' : 'none',
+              borderRadius: '8px',
             }}
           >
             <div id="yAxis" style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: 0, borderLeft: '2px solid #e74c3c', zIndex: 0, pointerEvents: 'none' }} />
@@ -472,7 +471,7 @@ export default function VectorPlotter() {
                   top: `${settings.posY * view.scale}px`,
                   width: `${settings.width * view.scale}px`,
                   height: `${settings.height * view.scale}px`,
-                  border: '1px dashed #007acc',
+                  border: '1px dashed var(--accent)',
                   zIndex: 5,
                   cursor: 'move',
                 }}
@@ -482,7 +481,7 @@ export default function VectorPlotter() {
             )}
 
             {!paths.length && (
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: '14px', pointerEvents: 'none' }}>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px', pointerEvents: 'none' }}>
                 Load an SVG
               </div>
             )}
@@ -490,36 +489,34 @@ export default function VectorPlotter() {
         </div>
 
         {/* RIGHT SETTINGS */}
-        <div style={{ width: '350px', minWidth: '350px', background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '-5px 5px 15px rgba(0,0,0,0.15)', zIndex: 15, margin: '15px', borderRadius: '8px', height: 'calc(100% - 30px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
-
+        <div className="plotter-settings">
           {paths.length === 0 && (
-            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(255,255,255,0.6)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', color: '#333', backdropFilter: 'blur(3px)', textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', color: 'var(--text-muted)', backdropFilter: 'blur(4px)' }}>
               Load an SVG to edit
             </div>
           )}
 
-          <div style={{ padding: '15px', overflowY: 'auto', flexGrow: 1 }}>
-            <button className="full-width-btn" onClick={generateGCode} disabled={paths.length === 0 || isProcessing}>
+          <div style={{ padding: '20px', overflowY: 'auto', flexGrow: 1 }}>
+            <button className="plotter-full-width-btn" onClick={generateGCode} disabled={paths.length === 0 || isProcessing}>
               {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
             </button>
-            <br /><br />
 
-            <div className="section-header">Dimensiaoisbndusbons (mm)</div>
-            <div className="control-group"><label>Width:</label><input type="number" value={settings.width} onChange={(e) => updateSetting('width', parseFloat(e.target.value) || 0)} /></div>
-            <div className="control-group"><label>Height:</label><input type="number" value={settings.height} onChange={(e) => updateSetting('height', parseFloat(e.target.value) || 0)} /></div>
-            <div className="control-group"><label>Keep proportions:</label><input type="checkbox" checked={settings.keepProportions} onChange={(e) => updateSetting('keepProportions', e.target.checked)} /></div>
+            <div className="plotter-section-header">Dimensions (mm)</div>
+            <div className="plotter-control-group"><label>Width:</label><input type="number" value={settings.width} onChange={(e) => updateSetting('width', parseFloat(e.target.value) || 0)} /></div>
+            <div className="plotter-control-group"><label>Height:</label><input type="number" value={settings.height} onChange={(e) => updateSetting('height', parseFloat(e.target.value) || 0)} /></div>
+            <div className="plotter-control-group"><label>Keep proportions:</label><input type="checkbox" checked={settings.keepProportions} onChange={(e) => updateSetting('keepProportions', e.target.checked)} /></div>
 
-            <div className="section-header">Position (mm)</div>
-            <div className="control-group"><label>Pos X:</label><input type="number" value={settings.posX} onChange={(e) => updateSetting('posX', parseFloat(e.target.value) || 0)} /></div>
-            <div className="control-group"><label>Pos Y:</label><input type="number" value={settings.posY} onChange={(e) => updateSetting('posY', parseFloat(e.target.value) || 0)} /></div>
+            <div className="plotter-section-header">Position (mm)</div>
+            <div className="plotter-control-group"><label>Pos X:</label><input type="number" value={settings.posX} onChange={(e) => updateSetting('posX', parseFloat(e.target.value) || 0)} /></div>
+            <div className="plotter-control-group"><label>Pos Y:</label><input type="number" value={settings.posY} onChange={(e) => updateSetting('posY', parseFloat(e.target.value) || 0)} /></div>
 
-            <div className="section-header">Plotter setup</div>
-            <div className="control-group"><label>Z Up:</label><input type="number" value={settings.zUp} onChange={(e) => updateSetting('zUp', parseFloat(e.target.value) || 0)} /></div>
-            <div className="control-group"><label>Z Down:</label><input type="number" value={settings.zDown} onChange={(e) => updateSetting('zDown', parseFloat(e.target.value) || 0)} /></div>
-            <div className="control-group"><label>Work Speed:</label><input type="number" value={settings.workSpeed} onChange={(e) => updateSetting('workSpeed', parseFloat(e.target.value) || 0)} /></div>
-            <div className="control-group"><label>Travel Speed:</label><input type="number" value={settings.travelSpeed} onChange={(e) => updateSetting('travelSpeed', parseFloat(e.target.value) || 0)} /></div>
+            <div className="plotter-section-header">Plotter setup</div>
+            <div className="plotter-control-group"><label>Z Up:</label><input type="number" value={settings.zUp} onChange={(e) => updateSetting('zUp', parseFloat(e.target.value) || 0)} /></div>
+            <div className="plotter-control-group"><label>Z Down:</label><input type="number" value={settings.zDown} onChange={(e) => updateSetting('zDown', parseFloat(e.target.value) || 0)} /></div>
+            <div className="plotter-control-group"><label>Work Speed:</label><input type="number" value={settings.workSpeed} onChange={(e) => updateSetting('workSpeed', parseFloat(e.target.value) || 0)} /></div>
+            <div className="plotter-control-group"><label>Travel Speed:</label><input type="number" value={settings.travelSpeed} onChange={(e) => updateSetting('travelSpeed', parseFloat(e.target.value) || 0)} /></div>
 
-            <div style={{ fontSize: '10px', color: '#666', marginTop: '15px', textAlign: 'center' }}>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '16px', textAlign: 'center' }}>
               Import .SVG files only. Paths are traced as lines (vectors).
             </div>
           </div>
