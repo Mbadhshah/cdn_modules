@@ -2,6 +2,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './Plotter.css';
 
 // --- Configuration ---
+// Bed: origin (0,0) at bottom center; X from -250 (left) to +250 (right); Y from 0 (bottom) to 300 (top)
+const BED_WIDTH_MM = 500;
+const BED_HEIGHT_MM = 300;
+const BED_CENTER_X_MM = 250; // 0,0 is at center of X
+
 const DEFAULT_SETTINGS = {
   // Dimensions (mm)
   width: 100,
@@ -9,9 +14,9 @@ const DEFAULT_SETTINGS = {
   keepProportions: true,
   scale: 1, // Internal scale factor
   
-  // Positioning
-  posX: 5,
-  posY: 5,
+  // Positioning (posX: -250 to +250 from center, posY: 0 = bottom)
+  posX: 0,
+  posY: 0,
   
   // Plotter Settings
   zUp: 5.0,
@@ -361,12 +366,20 @@ export default function VectorPlotter() {
             y: prev.y + dy
         }));
     } else if (dragMode === 'IMAGE') {
-        // Adjust image position relative to zoom scale
-        setSettings(prev => ({
-            ...prev,
-            posX: Math.max(0, round(prev.posX + dx / view.scale)),
-            posY: Math.max(0, round(prev.posY + dy / view.scale))
-        }));
+        // posX: left = -250, center = 0, right = +250. posY: bottom = 0, up = +. Dragging down (dy>0) = decrease posY.
+        const dxMm = dx / view.scale;
+        const dyMm = -dy / view.scale;
+        setSettings(prev => {
+            const minX = -250;
+            const maxX = 250 - prev.width;
+            const minY = 0;
+            const maxY = Math.max(0, 300 - prev.height);
+            return {
+                ...prev,
+                posX: round(Math.max(minX, Math.min(maxX, prev.posX + dxMm))),
+                posY: round(Math.max(minY, Math.min(maxY, prev.posY + dyMm)))
+            };
+        });
     }
   };
 
@@ -418,16 +431,18 @@ export default function VectorPlotter() {
               borderRadius: '8px',
             }}
           >
+            {/* Origin (0,0) at bottom center; X: -250 left to +250 right; Y: 0 bottom to 300 top */}
             <div id="yAxis" style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: 0, borderLeft: '2px solid #e74c3c', zIndex: 0, pointerEvents: 'none' }} />
             <div id="xAxis" style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 0, borderBottom: '2px solid #2ecc71', zIndex: 0, pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', left: '50%', bottom: 4, transform: 'translateX(-50%)', fontSize: 10, color: '#666', pointerEvents: 'none' }}>0,0</div>
 
             {paths.length > 0 && (
               <div
                 onMouseDown={handleImageMouseDown}
                 style={{
                   position: 'absolute',
-                  left: `${settings.posX * view.scale}px`,
-                  top: `${settings.posY * view.scale}px`,
+                  left: `${(BED_CENTER_X_MM + settings.posX) * view.scale}px`,
+                  top: `${(BED_HEIGHT_MM - settings.posY - settings.height) * view.scale}px`,
                   width: `${settings.width * view.scale}px`,
                   height: `${settings.height * view.scale}px`,
                   border: '1px dashed var(--accent)',
