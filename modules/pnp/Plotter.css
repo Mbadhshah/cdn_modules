@@ -29,22 +29,29 @@
   box-sizing: border-box;
 }
 
-/* Left column: toolbar on top, layers panel directly below */
-.plotter-left-column {
+/* Layers panel: top-most UI element, absolute — does not affect other containers */
+.plotter-layers-panel {
+  position: absolute;
+  top: clamp(20px, 2vw, 30px);
+  left: clamp(20px, 2vw, 30px);
+  z-index: 50;
+  width: 200px;
+  height: 220px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 200px;
-  min-width: 200px;
-  flex-shrink: 0;
+  min-height: 0;
 }
 
 .plotter-toolbar {
   width: 56px;
   min-width: 56px;
-  align-self: center;
-  flex: 1;
-  min-height: 0;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: 24px;
@@ -56,23 +63,6 @@
   align-items: center;
   padding: 20px;
   gap: 12px;
-}
-
-/* Layers panel: fixed size, toolbar bottom meets this panel's top */
-.plotter-layers-panel {
-  width: 200px;
-  height: 220px;
-  flex-shrink: 0;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: 24px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
 }
 
 .plotter-layers-list {
