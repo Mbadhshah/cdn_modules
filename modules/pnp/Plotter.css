@@ -29,9 +29,22 @@
   box-sizing: border-box;
 }
 
+/* Left column: toolbar on top, layers panel directly below */
+.plotter-left-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 200px;
+  min-width: 200px;
+  flex-shrink: 0;
+}
+
 .plotter-toolbar {
   width: 56px;
   min-width: 56px;
+  align-self: center;
+  flex: 1;
+  min-height: 0;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: 24px;
@@ -45,31 +58,30 @@
   gap: 12px;
 }
 
-/* Layers panel: bottom left, same visual style as toolbar */
+/* Layers panel: fixed size, toolbar bottom meets this panel's top */
 .plotter-layers-panel {
-  position: absolute;
-  left: 15px;
-  bottom: 15px;
   width: 200px;
-  max-height: 260px;
+  height: 220px;
+  flex-shrink: 0;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: 24px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  z-index: 20;
   padding: 12px;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .plotter-layers-list {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 220px;
 }
 
 .plotter-layers-list::-webkit-scrollbar {
