@@ -524,7 +524,7 @@ export default function VectorPlotter() {
         <div className="plotter-settings">
           {items.length === 0 && (
             <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', color: 'var(--text-muted)', backdropFilter: 'blur(4px)' }}>
-              Load one or more SVGs to edit
+              Load Images
             </div>
           )}
 
