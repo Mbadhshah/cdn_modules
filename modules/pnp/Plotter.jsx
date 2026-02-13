@@ -440,33 +440,33 @@ export default function VectorPlotter() {
       <div ref={hiddenSvgRef} style={{ position: 'absolute', width: 0, height: 0, visibility: 'hidden', pointerEvents: 'none' }} />
 
       <div id="main-container">
-        {/* LEFT TOOLBAR */}
-        <div className="plotter-toolbar">
-          <label className="plotter-icon-btn" title="Upload SVG (one or more)">
-            &#128193;
-            <input ref={fileInputRef} type="file" accept=".svg" multiple onChange={handleFile} style={{ display: 'none' }} />
-          </label>
-          <button className="plotter-icon-btn" title="Reset" onClick={() => { setItems([]); setActiveId(null); setView({ x: 0, y: 0, scale: 2 }); }}>&#10227;</button>
-          <div style={{ flexGrow: 1 }} />
-        </div>
-
-        {/* LAYERS PANEL — bottom left, next to toolbar */}
-        {items.length > 0 && (
-          <div className="plotter-layers-panel">
-            <div className="plotter-layers-list">
-              {items.map((it) => (
-                <div
-                  key={it.id}
-                  onClick={() => setActiveId(it.id)}
-                  className={`plotter-layer-item ${activeId === it.id ? 'active' : ''}`}
-                >
-                  <span className="plotter-layer-name" title={it.name}>{it.name}</span>
-                  <button type="button" className="plotter-layer-delete" onClick={(ev) => { ev.stopPropagation(); deleteItem(it.id); }} title="Remove">×</button>
-                </div>
-              ))}
-            </div>
+        {/* LEFT COLUMN: toolbar on top, layers panel below (toolbar bottom meets panel top) */}
+        <div className="plotter-left-column">
+          <div className="plotter-toolbar">
+            <label className="plotter-icon-btn" title="Upload SVG (one or more)">
+              &#128193;
+              <input ref={fileInputRef} type="file" accept=".svg" multiple onChange={handleFile} style={{ display: 'none' }} />
+            </label>
+            <button className="plotter-icon-btn" title="Reset" onClick={() => { setItems([]); setActiveId(null); setView({ x: 0, y: 0, scale: 2 }); }}>&#10227;</button>
+            <div style={{ flexGrow: 1 }} />
           </div>
-        )}
+          {items.length > 0 && (
+            <div className="plotter-layers-panel">
+              <div className="plotter-layers-list">
+                {items.map((it) => (
+                  <div
+                    key={it.id}
+                    onClick={() => setActiveId(it.id)}
+                    className={`plotter-layer-item ${activeId === it.id ? 'active' : ''}`}
+                  >
+                    <span className="plotter-layer-name" title={it.name}>{it.name}</span>
+                    <button type="button" className="plotter-layer-delete" onClick={(ev) => { ev.stopPropagation(); deleteItem(it.id); }} title="Remove">×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* WORKSPACE CENTER */}
         <div
