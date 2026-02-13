@@ -32,9 +32,8 @@ export default function VectorPlotter() {
   // --- State ---
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [svgContent, setSvgContent] = useState(null);
-  const [svgPreviewUrl, setSvgPreviewUrl] = useState(null); // Blob URL to show exact SVG image in workspace
   const [fileName, setFileName] = useState('plot');
-  const [paths, setPaths] = useState([]); // Array of polylines (arrays of points {x,y}) - used for G-code only
+  const [paths, setPaths] = useState([]); // Array of polylines (arrays of points {x,y})
   
   // View State: x/y for panning the bed, scale for zoom
   const [view, setView] = useState({ x: 0, y: 0, scale: 2.0 });
@@ -46,6 +45,7 @@ export default function VectorPlotter() {
   const lastMousePos = useRef({ x: 0, y: 0 });
 
   // --- Refs ---
+  const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const containerRef = useRef(null);
   const hiddenSvgRef = useRef(null); // For parsing path geometry
@@ -53,17 +53,6 @@ export default function VectorPlotter() {
   // --- Helpers (1 decimal place for settings) ---
   const round = (num) => Math.round(num * 10) / 10;
   const round1 = (num) => (typeof num === 'number' && !Number.isNaN(num) ? Math.round(num * 10) / 10 : num);
-
-  // Create blob URL so workspace can show the exact SVG image (not just extracted paths)
-  useEffect(() => {
-    if (!svgContent) {
-      setSvgPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(new Blob([svgContent], { type: 'image/svg+xml' }));
-    setSvgPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [svgContent]);
 
   // --- SVG Parsing Engine ---
   const parseSVG = (svgText) => {
@@ -103,101 +92,151 @@ export default function VectorPlotter() {
     if (hiddenSvgRef.current) {
         hiddenSvgRef.current.innerHTML = svgText;
         const svgDom = hiddenSvgRef.current.querySelector('svg');
-        
-        // Ensure standard units for calculation
+        if (!svgDom) return;
+
         svgDom.setAttribute('width', '100%');
         svgDom.setAttribute('height', '100%');
 
         const extractedPaths = [];
-        const precision = 1; // Sample every 1 unit (internal SVG units)
+        const precision = 0.5; // Finer sampling for smoother curves and fewer missed segments
+        const NS = "http://www.w3.org/2000/svg";
 
-        // Helper: Sample a path element and Apply Transforms
-        const samplePath = (pathEl, originalEl = null) => {
-            const len = pathEl.getTotalLength();
-            if (len <= 0) return;
-
-            // Get the Transformation Matrix (CTM) of the original element
-            // This handles <g transform="...">, rotate, scale, translate
-            const elForMatrix = originalEl || pathEl;
-            const ctm = elForMatrix.getCTM ? elForMatrix.getCTM() : null;
-            
-            // Handle "Move" commands (gaps) inside a single path string
-            const d = pathEl.getAttribute('d') || "";
-            // Robust Regex split that keeps the 'M/m' delimiter
-            const subPathCmds = d.split(/(?=[Mm])/).filter(s => s.trim().length > 0);
-
-            subPathCmds.forEach(subCmd => {
-                // Create a temp path for this segment to calculate geometry
-                const tempPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                tempPath.setAttribute("d", subCmd);
-                
-                const subLen = tempPath.getTotalLength();
-                const points = [];
-                
-                // Sample points along the curve
-                for (let i = 0; i <= subLen; i += precision) {
-                    const pt = tempPath.getPointAtLength(i);
-                    let finalX = pt.x;
-                    let finalY = pt.y;
-
-                    // Apply Matrix Transform if available
-                    if (ctm) {
-                        finalX = pt.x * ctm.a + pt.y * ctm.c + ctm.e;
-                        finalY = pt.x * ctm.b + pt.y * ctm.d + ctm.f;
-                    }
-                    points.push({ x: finalX, y: finalY });
-                }
-                
-                // Add last point
-                const lastPt = tempPath.getPointAtLength(subLen);
-                let lastX = lastPt.x;
-                let lastY = lastPt.y;
-                 if (ctm) {
-                    lastX = lastPt.x * ctm.a + lastPt.y * ctm.c + ctm.e;
-                    lastY = lastPt.x * ctm.b + lastPt.y * ctm.d + ctm.f;
-                }
-                points.push({ x: lastX, y: lastY });
-
-                if (points.length > 1) extractedPaths.push(points);
-            });
+        const getRefId = (useEl) => {
+            const href = useEl.getAttribute('href') || useEl.getAttribute('xlink:href') || '';
+            const m = href.match(/#([^#]+)/);
+            return m ? m[1] : href.replace(/^#/, '');
         };
 
-        const elements = svgDom.querySelectorAll('path, rect, circle, ellipse, line, polyline, polygon');
-        
-        elements.forEach(el => {
-            const tag = el.tagName.toLowerCase();
-            if (tag === 'path') {
-                samplePath(el);
-            } else {
-                try {
-                    const len = el.getTotalLength();
-                    const ctm = el.getCTM ? el.getCTM() : null;
-                    const points = [];
-                    
-                    for (let i = 0; i <= len; i += precision) {
-                        const pt = el.getPointAtLength(i);
-                        let finalX = pt.x;
-                        let finalY = pt.y;
+        // Resolve <use href="#id">: clone referenced element into a temp group with use's transform so getCTM() is correct
+        const tempGroups = [];
+        const allUse = svgDom.querySelectorAll('use');
+        allUse.forEach((useEl) => {
+            if (useEl.closest('defs')) return;
+            const id = getRefId(useEl);
+            if (!id) return;
+            const ref = svgDom.querySelector('[id="' + id + '"]') || document.getElementById(id);
+            if (!ref) return;
+            const tag = ref.tagName.toLowerCase();
+            const supported = ['path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'g', 'symbol'];
+            if (!supported.includes(tag)) return;
 
-                        if (ctm) {
-                            finalX = pt.x * ctm.a + pt.y * ctm.c + ctm.e;
-                            finalY = pt.x * ctm.b + pt.y * ctm.d + ctm.f;
-                        }
-                        points.push({ x: finalX, y: finalY });
-                    }
-                    if (points.length > 1) extractedPaths.push(points);
-                } catch (e) {
-                    // console.warn("Could not sample element:", el);
-                }
-            }
+            const useX = parseFloat(useEl.getAttribute('x')) || 0;
+            const useY = parseFloat(useEl.getAttribute('y')) || 0;
+            let transform = `translate(${useX},${useY})`;
+            const tr = useEl.getAttribute('transform');
+            if (tr) transform = tr + ' ' + transform;
+
+            const group = document.createElementNS(NS, 'g');
+            group.setAttribute('transform', transform);
+            const clone = ref.cloneNode(true);
+            group.appendChild(clone);
+            svgDom.appendChild(group);
+            tempGroups.push(group);
         });
 
+        // Sample one element: get points with CTM applied
+        const sampleElement = (el, outPaths) => {
+            const tag = el.tagName.toLowerCase();
+            const ctm = el.getCTM ? el.getCTM() : null;
+            const applyCtm = (pt) => {
+                if (!ctm) return { x: pt.x, y: pt.y };
+                return {
+                    x: pt.x * ctm.a + pt.y * ctm.c + ctm.e,
+                    y: pt.x * ctm.b + pt.y * ctm.d + ctm.f
+                };
+            };
+
+            if (tag === 'path') {
+                const d = el.getAttribute('d') || '';
+                if (!d.trim()) return;
+                const subPathCmds = d.split(/(?=[Mm])/).filter(s => s.trim().length > 0);
+                subPathCmds.forEach(subCmd => {
+                    const tempPath = document.createElementNS(NS, 'path');
+                    tempPath.setAttribute('d', subCmd);
+                    const subLen = tempPath.getTotalLength();
+                    if (subLen <= 0) return;
+                    const points = [];
+                    for (let i = 0; i <= subLen; i += precision) {
+                        const pt = tempPath.getPointAtLength(Math.min(i, subLen));
+                        points.push(applyCtm(pt));
+                    }
+                    if (points.length > 1) outPaths.push(points);
+                });
+                return;
+            }
+
+            if (['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon'].includes(tag)) {
+                try {
+                    const len = el.getTotalLength();
+                    if (len <= 0) return;
+                    const points = [];
+                    for (let i = 0; i <= len; i += precision) {
+                        const pt = el.getPointAtLength(Math.min(i, len));
+                        points.push(applyCtm(pt));
+                    }
+                    if (points.length > 1) outPaths.push(points);
+                } catch (err) { /* ignore */ }
+            }
+
+            if (tag === 'g' || tag === 'symbol') {
+                const children = el.querySelectorAll('path, rect, circle, ellipse, line, polyline, polygon');
+                children.forEach(child => sampleElement(child, outPaths));
+            }
+        };
+
+        // Collect elements to sample: direct shapes not in defs + shapes inside expanded use groups
+        const direct = svgDom.querySelectorAll('path, rect, circle, ellipse, line, polyline, polygon');
+        direct.forEach(el => {
+            if (el.closest('defs')) return;
+            sampleElement(el, extractedPaths);
+        });
+
+        // Remove temporary use-expansion groups
+        tempGroups.forEach(g => g.remove());
+
         setPaths(extractedPaths);
-        hiddenSvgRef.current.innerHTML = ''; // Clean up
+        hiddenSvgRef.current.innerHTML = '';
     }
   };
 
-  // Paths are used only for G-code generation. Workspace preview shows the exact SVG image via img + svgPreviewUrl.
+  // --- Logic: Preview Rendering ---
+  useEffect(() => {
+    if (!canvasRef.current || paths.length === 0) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    
+    // Scale Factor = settings.width / originalSize.w
+    const scaleFactorX = settings.width / originalSize.w;
+    const scaleFactorY = settings.height / originalSize.h;
+    
+    // Resolution for canvas (higher for crispness)
+    const renderScale = 2; 
+    canvas.width = settings.width * renderScale;
+    canvas.height = settings.height * renderScale;
+    
+    ctx.scale(renderScale, renderScale);
+    ctx.clearRect(0, 0, settings.width, settings.height);
+    
+    // Style
+    ctx.strokeStyle = "#2563eb"; // Blue lines
+    ctx.lineWidth = 0.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    paths.forEach(poly => {
+        if (poly.length < 2) return;
+        ctx.beginPath();
+        // Move to first point (scaled)
+        ctx.moveTo(poly[0].x * scaleFactorX, poly[0].y * scaleFactorY);
+        
+        for (let i = 1; i < poly.length; i++) {
+            ctx.lineTo(poly[i].x * scaleFactorX, poly[i].y * scaleFactorY);
+        }
+        ctx.stroke();
+    });
+
+  }, [paths, settings.width, settings.height, originalSize]);
 
 
   // --- Logic: G-Code Generation ---
@@ -414,7 +453,7 @@ export default function VectorPlotter() {
             <div style={{ position: 'absolute', left: '50%', bottom: 4, transform: 'translateX(-50%)', fontSize: 10, color: '#666', pointerEvents: 'none' }}>0,0</div>
             <div style={{ position: 'absolute', right: 4, bottom: 4, fontSize: 10, color: '#666', pointerEvents: 'none' }}>250,0</div>
 
-            {(svgPreviewUrl && svgContent) && (
+            {paths.length > 0 && (
               <div
                 onMouseDown={handleImageMouseDown}
                 style={{
@@ -428,15 +467,11 @@ export default function VectorPlotter() {
                   cursor: 'move',
                 }}
               >
-                <img
-                  src={svgPreviewUrl}
-                  alt=""
-                  style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', pointerEvents: 'none' }}
-                />
+                <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
               </div>
             )}
 
-            {!svgContent && (
+            {!paths.length && (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px', pointerEvents: 'none' }}>
                 Load an SVG
               </div>
@@ -446,14 +481,14 @@ export default function VectorPlotter() {
 
         {/* RIGHT SETTINGS */}
         <div className="plotter-settings">
-          {!svgContent && (
+          {paths.length === 0 && (
             <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', color: 'var(--text-muted)', backdropFilter: 'blur(4px)' }}>
               Load an SVG to edit
             </div>
           )}
 
           <div style={{ padding: '20px', overflowY: 'auto', flexGrow: 1 }}>
-            <button className="plotter-full-width-btn" onClick={generateGCode} disabled={!svgContent || paths.length === 0 || isProcessing}>
+            <button className="plotter-full-width-btn" onClick={generateGCode} disabled={paths.length === 0 || isProcessing}>
               {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
             </button>
 
