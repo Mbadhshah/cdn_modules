@@ -78,11 +78,13 @@ export default function VectorPlotter() {
     
     setOriginalSize({ w: origW, h: origH });
     
-    // Set initial dimensions to original size (converted roughly to mm if possible, otherwise 1:1)
+    // Set initial width to 100 (mm), height scaled to keep aspect ratio
+    const initialWidth = 100;
+    const initialHeight = origW > 0 ? round(initialWidth * (origH / origW)) : initialWidth;
     setSettings(prev => ({
         ...prev,
-        width: round(origW),
-        height: round(origH),
+        width: initialWidth,
+        height: initialHeight,
         scale: 1
     }));
 
