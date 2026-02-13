@@ -440,32 +440,33 @@ export default function VectorPlotter() {
       <div ref={hiddenSvgRef} style={{ position: 'absolute', width: 0, height: 0, visibility: 'hidden', pointerEvents: 'none' }} />
 
       <div id="main-container">
-        {/* LEFT TOOLBAR (with layers when items exist) */}
-        <div className={`plotter-toolbar ${items.length > 0 ? 'plotter-toolbar-with-layers' : ''}`}>
+        {/* LEFT TOOLBAR */}
+        <div className="plotter-toolbar">
           <label className="plotter-icon-btn" title="Upload SVG (one or more)">
             &#128193;
             <input ref={fileInputRef} type="file" accept=".svg" multiple onChange={handleFile} style={{ display: 'none' }} />
           </label>
           <button className="plotter-icon-btn" title="Reset" onClick={() => { setItems([]); setActiveId(null); setView({ x: 0, y: 0, scale: 2 }); }}>&#10227;</button>
-          {items.length > 0 && (
-            <>
-              <div className="plotter-toolbar-layers-header">Layers</div>
-              <div className="plotter-toolbar-layers-list">
-                {items.map((it) => (
-                  <div
-                    key={it.id}
-                    onClick={() => setActiveId(it.id)}
-                    className={`plotter-toolbar-layer-item ${activeId === it.id ? 'active' : ''}`}
-                  >
-                    <span className="plotter-toolbar-layer-name" title={it.name}>{it.name}</span>
-                    <button type="button" className="plotter-toolbar-layer-delete" onClick={(ev) => { ev.stopPropagation(); deleteItem(it.id); }} title="Remove">×</button>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
           <div style={{ flexGrow: 1 }} />
         </div>
+
+        {/* LAYERS PANEL — bottom left, next to toolbar */}
+        {items.length > 0 && (
+          <div className="plotter-layers-panel">
+            <div className="plotter-layers-list">
+              {items.map((it) => (
+                <div
+                  key={it.id}
+                  onClick={() => setActiveId(it.id)}
+                  className={`plotter-layer-item ${activeId === it.id ? 'active' : ''}`}
+                >
+                  <span className="plotter-layer-name" title={it.name}>{it.name}</span>
+                  <button type="button" className="plotter-layer-delete" onClick={(ev) => { ev.stopPropagation(); deleteItem(it.id); }} title="Remove">×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* WORKSPACE CENTER */}
         <div
@@ -533,7 +534,7 @@ export default function VectorPlotter() {
               {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
             </button>
 
-            <div className="plotter-section-header">Plotter setup (all layers)</div>
+            <div className="plotter-section-header">Plotter setup</div>
             <div className="plotter-control-group"><label>Z Up:</label><input type="number" step="0.1" value={plotterSetup.zUp} onChange={(e) => updatePlotterSetup('zUp', parseFloat(e.target.value) || 0)} /></div>
             <div className="plotter-control-group"><label>Z Down:</label><input type="number" step="0.1" value={plotterSetup.zDown} onChange={(e) => updatePlotterSetup('zDown', parseFloat(e.target.value) || 0)} /></div>
             <div className="plotter-control-group"><label>Work Speed:</label><input type="number" step="0.1" value={plotterSetup.workSpeed} onChange={(e) => updatePlotterSetup('workSpeed', parseFloat(e.target.value) || 0)} /></div>
@@ -541,7 +542,7 @@ export default function VectorPlotter() {
 
             {activeItem && (
               <>
-                <div className="plotter-section-header">Dimensions (mm) — {activeItem.name}</div>
+                <div className="plotter-section-header">Dimensions (mm)</div>
                 <div className="plotter-control-group"><label>Width:</label><input type="number" step="0.1" value={activeItem.settings.width} onChange={(e) => updateSetting('width', parseFloat(e.target.value) || 0)} /></div>
                 <div className="plotter-control-group"><label>Height:</label><input type="number" step="0.1" value={activeItem.settings.height} onChange={(e) => updateSetting('height', parseFloat(e.target.value) || 0)} /></div>
                 <div className="plotter-control-group"><label>Keep proportions:</label><input type="checkbox" checked={activeItem.settings.keepProportions} onChange={(e) => updateSetting('keepProportions', e.target.checked)} /></div>
