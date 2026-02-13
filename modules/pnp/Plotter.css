@@ -1,5 +1,170 @@
-#plotter {
-    /* width: 100%;
-    height: 100%;
-    background-color: #000; */
+/* Plotter module – layout and glass style (PNP-style) */
+
+.roboblock-studio-body {
+  margin: 0;
+  height: calc(100vh - 72px);
+  width: 100%;
+  background: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --glass-bg: rgba(255, 255, 255, 0.07);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --accent: #00d2ff;
+  --text: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.5);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#main-container {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  height: 100%;
+  gap: clamp(15px, 1.5vw, 25px);
+  padding: clamp(20px, 2vw, 30px);
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.plotter-toolbar {
+  width: 56px;
+  min-width: 56px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  gap: 12px;
+}
+
+.plotter-workspace {
+  flex: 1;
+  min-width: 0;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  position: relative;
+  display: flex;
+  overflow: hidden;
+}
+
+.plotter-settings {
+  width: 320px;
+  min-width: 320px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.plotter-icon-btn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 12px;
+  font-size: 18px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.2s;
+}
+
+.plotter-icon-btn:hover {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.4);
+}
+
+.plotter-section-header {
+  font-weight: bold;
+  margin-top: 12px;
+  margin-bottom: 6px;
+  color: var(--accent);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.plotter-control-group {
+  margin-bottom: 8px;
+  overflow: hidden;
+  line-height: 22px;
+  border-bottom: 1px solid var(--glass-border);
+  padding-bottom: 6px;
+  color: var(--text);
+}
+
+.plotter-control-group label {
+  font-size: 12px;
+  float: left;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.plotter-control-group input {
+  float: right;
+  width: 58px;
+  padding: 2px 4px;
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.plotter-control-group input[type="checkbox"] {
+  float: right;
+  width: auto;
+}
+
+.plotter-full-width-btn {
+  width: 100%;
+  padding: 12px;
+  background: rgba(0, 210, 255, 0.2);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 12px;
+  transition: all 0.2s;
+}
+
+.plotter-full-width-btn:hover:not(:disabled) {
+  background: rgba(0, 210, 255, 0.3);
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.3);
+}
+
+.plotter-full-width-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.plotter-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 16px;
+  text-align: center;
 }
