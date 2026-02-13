@@ -32,8 +32,9 @@ export default function VectorPlotter() {
   // --- State ---
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [svgContent, setSvgContent] = useState(null);
+  const [svgPreviewUrl, setSvgPreviewUrl] = useState(null); // Blob URL to show exact SVG image in workspace
   const [fileName, setFileName] = useState('plot');
-  const [paths, setPaths] = useState([]); // Array of polylines (arrays of points {x,y})
+  const [paths, setPaths] = useState([]); // Array of polylines (arrays of points {x,y}) - used for G-code only
   
   // View State: x/y for panning the bed, scale for zoom
   const [view, setView] = useState({ x: 0, y: 0, scale: 2.0 });
@@ -45,7 +46,6 @@ export default function VectorPlotter() {
   const lastMousePos = useRef({ x: 0, y: 0 });
 
   // --- Refs ---
-  const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const containerRef = useRef(null);
   const hiddenSvgRef = useRef(null); // For parsing path geometry
@@ -53,6 +53,17 @@ export default function VectorPlotter() {
   // --- Helpers (1 decimal place for settings) ---
   const round = (num) => Math.round(num * 10) / 10;
   const round1 = (num) => (typeof num === 'number' && !Number.isNaN(num) ? Math.round(num * 10) / 10 : num);
+
+  // Create blob URL so workspace can show the exact SVG image (not just extracted paths)
+  useEffect(() => {
+    if (!svgContent) {
+      setSvgPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([svgContent], { type: 'image/svg+xml' }));
+    setSvgPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [svgContent]);
 
   // --- SVG Parsing Engine ---
   const parseSVG = (svgText) => {
@@ -186,44 +197,7 @@ export default function VectorPlotter() {
     }
   };
 
-  // --- Logic: Preview Rendering ---
-  useEffect(() => {
-    if (!canvasRef.current || paths.length === 0) return;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    
-    // Scale Factor = settings.width / originalSize.w
-    const scaleFactorX = settings.width / originalSize.w;
-    const scaleFactorY = settings.height / originalSize.h;
-    
-    // Resolution for canvas (higher for crispness)
-    const renderScale = 2; 
-    canvas.width = settings.width * renderScale;
-    canvas.height = settings.height * renderScale;
-    
-    ctx.scale(renderScale, renderScale);
-    ctx.clearRect(0, 0, settings.width, settings.height);
-    
-    // Style
-    ctx.strokeStyle = "#2563eb"; // Blue lines
-    ctx.lineWidth = 0.5;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    paths.forEach(poly => {
-        if (poly.length < 2) return;
-        ctx.beginPath();
-        // Move to first point (scaled)
-        ctx.moveTo(poly[0].x * scaleFactorX, poly[0].y * scaleFactorY);
-        
-        for (let i = 1; i < poly.length; i++) {
-            ctx.lineTo(poly[i].x * scaleFactorX, poly[i].y * scaleFactorY);
-        }
-        ctx.stroke();
-    });
-
-  }, [paths, settings.width, settings.height, originalSize]);
+  // Paths are used only for G-code generation. Workspace preview shows the exact SVG image via img + svgPreviewUrl.
 
 
   // --- Logic: G-Code Generation ---
@@ -440,7 +414,7 @@ export default function VectorPlotter() {
             <div style={{ position: 'absolute', left: '50%', bottom: 4, transform: 'translateX(-50%)', fontSize: 10, color: '#666', pointerEvents: 'none' }}>0,0</div>
             <div style={{ position: 'absolute', right: 4, bottom: 4, fontSize: 10, color: '#666', pointerEvents: 'none' }}>250,0</div>
 
-            {paths.length > 0 && (
+            {(svgPreviewUrl && svgContent) && (
               <div
                 onMouseDown={handleImageMouseDown}
                 style={{
@@ -454,11 +428,15 @@ export default function VectorPlotter() {
                   cursor: 'move',
                 }}
               >
-                <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
+                <img
+                  src={svgPreviewUrl}
+                  alt=""
+                  style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', pointerEvents: 'none' }}
+                />
               </div>
             )}
 
-            {!paths.length && (
+            {!svgContent && (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px', pointerEvents: 'none' }}>
                 Load an SVG
               </div>
@@ -468,14 +446,14 @@ export default function VectorPlotter() {
 
         {/* RIGHT SETTINGS */}
         <div className="plotter-settings">
-          {paths.length === 0 && (
+          {!svgContent && (
             <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', color: 'var(--text-muted)', backdropFilter: 'blur(4px)' }}>
               Load an SVG to edit
             </div>
           )}
 
           <div style={{ padding: '20px', overflowY: 'auto', flexGrow: 1 }}>
-            <button className="plotter-full-width-btn" onClick={generateGCode} disabled={paths.length === 0 || isProcessing}>
+            <button className="plotter-full-width-btn" onClick={generateGCode} disabled={!svgContent || paths.length === 0 || isProcessing}>
               {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
             </button>
 
