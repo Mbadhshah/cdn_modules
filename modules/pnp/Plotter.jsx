@@ -419,9 +419,13 @@ export default function VectorPlotter() {
             const startY = round((pts[0].y * scaleY) + s.posY);
             gcode.push(`G0 X${startX} Y${startY} F${s.travelSpeed}`);
             gcode.push(`G1 Z${s.zDown} F${s.workSpeed}`);
+            let lastX = startX, lastY = startY;
             for (let i = 1; i < pts.length; i++) {
               const x = round((pts[i].x * scaleX) + s.posX);
               const y = round((pts[i].y * scaleY) + s.posY);
+              if (x === lastX && y === lastY) continue; // skip duplicate points
+              lastX = x;
+              lastY = y;
               gcode.push(`G1 X${x} Y${y} F${s.workSpeed}`);
             }
             gcode.push(`G0 Z${s.zUp} F${s.travelSpeed}`);
