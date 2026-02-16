@@ -87,11 +87,13 @@ export default function VectorPlotter() {
   // View State: x/y for panning the bed, scale for zoom
   const [view, setView] = useState({ x: 0, y: 0, scale: 2.0 });
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // --- Interaction State ---
   const [dragMode, setDragMode] = useState('NONE'); // 'NONE', 'VIEW', 'IMAGE'
   const lastMousePos = useRef({ x: 0, y: 0 });
   const dragItemIdRef = useRef(null);
+  const pendingUploadsRef = useRef(0);
 
   // --- Refs ---
   const fileInputRef = useRef(null);
@@ -318,6 +320,8 @@ export default function VectorPlotter() {
       e.target.value = '';
       return;
     }
+    pendingUploadsRef.current = svgFiles.length;
+    setIsUploading(true);
     svgFiles.forEach((file) => {
       const reader = new FileReader();
       reader.onload = (ev) => {
@@ -326,6 +330,12 @@ export default function VectorPlotter() {
           const name = file.name.replace(/\.svg$/i, '');
           addItemsFromParsed(name, result.paths, result.origW, result.origH);
         }
+        pendingUploadsRef.current -= 1;
+        if (pendingUploadsRef.current === 0) setIsUploading(false);
+      };
+      reader.onerror = () => {
+        pendingUploadsRef.current -= 1;
+        if (pendingUploadsRef.current === 0) setIsUploading(false);
       };
       reader.readAsText(file);
     });
@@ -482,7 +492,12 @@ export default function VectorPlotter() {
               />
             ))}
 
-            {items.length === 0 && (
+            {isUploading && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', color: 'var(--accent)', fontSize: '16px', fontWeight: 'bold', pointerEvents: 'none', zIndex: 50 }}>
+                Uploading…
+              </div>
+            )}
+            {items.length === 0 && !isUploading && (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px', pointerEvents: 'none' }}>
                 Load images
               </div>
@@ -499,12 +514,12 @@ export default function VectorPlotter() {
           )}
 
           <div style={{ padding: '20px', overflowY: 'auto', flexGrow: 1 }}>
-            <button className="plotter-full-width-btn" onClick={generateGCode} disabled={items.length === 0 || isProcessing}>
+            <button className="plotter-full-width-btn" onClick={generateGCode} disabled={items.length === 0 || isProcessing} style={{ marginBottom: 16 }}>
               {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
             </button>
 
             {items.length > 0 && (
-              <div style={{ marginBottom: 8, maxHeight: 120, overflowY: 'auto' }}>
+              <div style={{ marginTop: 12, marginBottom: 8, maxHeight: 120, overflowY: 'auto' }}>
                 {items.map((it) => (
                   <div
                     key={it.id}
