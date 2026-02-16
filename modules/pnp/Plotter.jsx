@@ -65,10 +65,11 @@ function svgArcToCenter(x1, y1, x2, y2, rx, ry, phiDeg, fA, fS) {
 // Path segment: either { type: 'line', points: [{x,y},...] } or { type: 'arc', start, end, center, clockwise }.
 // Normalize so backward compat: if a path item is a plain array of points, treat as { type: 'line', points }.
 function toSegment(poly) {
-  if (!poly || !Array.isArray(poly)) return null;
+  if (!poly) return null;
   if (poly.type === 'arc') return poly;
   if (poly.type === 'line' && poly.points) return poly;
-  return { type: 'line', points: poly };
+  if (Array.isArray(poly)) return { type: 'line', points: poly };
+  return null;
 }
 
 // Single image block on the bed (canvas + position)
