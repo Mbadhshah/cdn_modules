@@ -32,6 +32,45 @@ function createItemId() {
   return 'plot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
 }
 
+// SVG arc (endpoint param) -> center param. Returns { cx, cy, clockwise } for circular arc, or null if line/degenerate.
+// phi in degrees; fA = large-arc, fS = sweep (0=CW, 1=CCW). For G-code: G2=CW, G3=CCW.
+function svgArcToCenter(x1, y1, x2, y2, rx, ry, phiDeg, fA, fS) {
+  rx = Math.abs(rx);
+  ry = Math.abs(ry);
+  if (rx < 1e-9 || ry < 1e-9) return null;
+  const phi = (phiDeg * Math.PI) / 180;
+  const cosPhi = Math.cos(phi);
+  const sinPhi = Math.sin(phi);
+  const dx = (x1 - x2) / 2;
+  const dy = (y1 - y2) / 2;
+  const x1p = cosPhi * dx + sinPhi * dy;
+  const y1p = -sinPhi * dx + cosPhi * dy;
+  let lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+  if (lambda > 1) {
+    const s = Math.sqrt(lambda);
+    rx *= s;
+    ry *= s;
+  }
+  const sq = (rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p) / (rx * rx * y1p * y1p + ry * ry * x1p * x1p);
+  if (sq < 0) return null;
+  const coef = (fA !== fS ? 1 : -1) * Math.sqrt(Math.max(0, sq));
+  const cxp = coef * (rx * y1p / ry);
+  const cyp = coef * (-ry * x1p / rx);
+  const cx = cosPhi * cxp - sinPhi * cyp + (x1 + x2) / 2;
+  const cy = sinPhi * cxp + cosPhi * cyp + (y1 + y2) / 2;
+  const clockwise = fS === 0;
+  return { cx, cy, clockwise, rx, ry };
+}
+
+// Path segment: either { type: 'line', points: [{x,y},...] } or { type: 'arc', start, end, center, clockwise }.
+// Normalize so backward compat: if a path item is a plain array of points, treat as { type: 'line', points }.
+function toSegment(poly) {
+  if (!poly || !Array.isArray(poly)) return null;
+  if (poly.type === 'arc') return poly;
+  if (poly.type === 'line' && poly.points) return poly;
+  return { type: 'line', points: poly };
+}
+
 // Single image block on the bed (canvas + position)
 function PlotItem({ item, scale, isSelected }) {
   const canvasRef = useRef(null);
@@ -52,10 +91,23 @@ function PlotItem({ item, scale, isSelected }) {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     paths.forEach((poly) => {
-      if (poly.length < 2) return;
+      const seg = toSegment(poly);
+      if (!seg) return;
       ctx.beginPath();
-      ctx.moveTo(poly[0].x * scaleFactorX, poly[0].y * scaleFactorY);
-      for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x * scaleFactorX, poly[i].y * scaleFactorY);
+      if (seg.type === 'arc') {
+        const sx = seg.start.x * scaleFactorX, sy = seg.start.y * scaleFactorY;
+        const cx = seg.center.x * scaleFactorX, cy = seg.center.y * scaleFactorY;
+        const ex = seg.end.x * scaleFactorX, ey = seg.end.y * scaleFactorY;
+        const r = Math.hypot(sx - cx, sy - cy);
+        const startAngle = Math.atan2(sy - cy, sx - cx);
+        const endAngle = Math.atan2(ey - cy, ex - cx);
+        ctx.arc(cx, cy, r, startAngle, endAngle, seg.clockwise);
+      } else {
+        const pts = seg.points;
+        if (!pts || pts.length < 2) return;
+        ctx.moveTo(pts[0].x * scaleFactorX, pts[0].y * scaleFactorY);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x * scaleFactorX, pts[i].y * scaleFactorY);
+      }
       ctx.stroke();
     });
   }, [paths, settings.width, settings.height, originalSize]);
@@ -142,6 +194,32 @@ export default function VectorPlotter() {
             return m ? m[1] : href.replace(/^#/, '');
         };
 
+        // Recursively expand <use> inside a cloned element so nested symbols appear (depth limit to avoid cycles)
+        const expandUsesInClone = (clone, svgRoot, depth) => {
+            if (depth > 15) return;
+            const uses = clone.querySelectorAll ? Array.from(clone.querySelectorAll('use')) : [];
+            uses.forEach((useEl) => {
+                const id = getRefId(useEl);
+                if (!id) return;
+                const ref = svgRoot.querySelector('[id="' + id + '"]') || document.getElementById(id);
+                if (!ref) return;
+                const tag = ref.tagName.toLowerCase();
+                const supported = ['path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'g', 'symbol'];
+                if (!supported.includes(tag)) return;
+                const useX = parseFloat(useEl.getAttribute('x')) || 0;
+                const useY = parseFloat(useEl.getAttribute('y')) || 0;
+                let transform = `translate(${useX},${useY})`;
+                const tr = useEl.getAttribute('transform');
+                if (tr) transform = tr + ' ' + transform;
+                const innerGroup = document.createElementNS(NS, 'g');
+                innerGroup.setAttribute('transform', transform);
+                const innerClone = ref.cloneNode(true);
+                expandUsesInClone(innerClone, svgRoot, depth + 1);
+                innerGroup.appendChild(innerClone);
+                if (useEl.parentNode) useEl.parentNode.replaceChild(innerGroup, useEl);
+            });
+        };
+
         // Resolve <use href="#id">: clone referenced element into a temp group with use's transform so getCTM() is correct
         const tempGroups = [];
         const allUse = svgDom.querySelectorAll('use');
@@ -164,6 +242,7 @@ export default function VectorPlotter() {
             const group = document.createElementNS(NS, 'g');
             group.setAttribute('transform', transform);
             const clone = ref.cloneNode(true);
+            expandUsesInClone(clone, svgDom, 0);
             group.appendChild(clone);
             svgDom.appendChild(group);
             tempGroups.push(group);
@@ -195,12 +274,52 @@ export default function VectorPlotter() {
                         const pt = tempPath.getPointAtLength(Math.min(i, subLen));
                         points.push(applyCtm(pt));
                     }
-                    if (points.length > 1) outPaths.push(points);
+                    if (points.length > 1) outPaths.push({ type: 'line', points });
                 });
                 return;
             }
 
-            if (['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon'].includes(tag)) {
+            if (tag === 'circle') {
+                const cx = parseFloat(el.getAttribute('cx')) || 0;
+                const cy = parseFloat(el.getAttribute('cy')) || 0;
+                const r = parseFloat(el.getAttribute('r')) || 0;
+                if (r <= 0) return;
+                const start1 = applyCtm({ x: cx + r, y: cy });
+                const end1 = applyCtm({ x: cx - r, y: cy });
+                const center = applyCtm({ x: cx, y: cy });
+                outPaths.push({ type: 'arc', start: start1, end: end1, center, clockwise: false });
+                outPaths.push({ type: 'arc', start: end1, end: start1, center, clockwise: true });
+                return;
+            }
+
+            if (tag === 'ellipse') {
+                const cx = parseFloat(el.getAttribute('cx')) || 0;
+                const cy = parseFloat(el.getAttribute('cy')) || 0;
+                let rx = parseFloat(el.getAttribute('rx')) || 0;
+                let ry = parseFloat(el.getAttribute('ry')) || 0;
+                if (rx <= 0 || ry <= 0) return;
+                if (Math.abs(rx - ry) < 1e-6) {
+                    const start1 = applyCtm({ x: cx + rx, y: cy });
+                    const end1 = applyCtm({ x: cx - rx, y: cy });
+                    const center = applyCtm({ x: cx, y: cy });
+                    outPaths.push({ type: 'arc', start: start1, end: end1, center, clockwise: false });
+                    outPaths.push({ type: 'arc', start: end1, end: start1, center, clockwise: true });
+                } else {
+                    try {
+                        const len = el.getTotalLength();
+                        if (len <= 0) return;
+                        const points = [];
+                        for (let i = 0; i <= len; i += precision) {
+                            const pt = el.getPointAtLength(Math.min(i, len));
+                            points.push(applyCtm(pt));
+                        }
+                        if (points.length > 1) outPaths.push({ type: 'line', points });
+                    } catch (err) { /* ignore */ }
+                }
+                return;
+            }
+
+            if (['rect', 'line', 'polyline', 'polygon'].includes(tag)) {
                 try {
                     const len = el.getTotalLength();
                     if (len <= 0) return;
@@ -209,7 +328,7 @@ export default function VectorPlotter() {
                         const pt = el.getPointAtLength(Math.min(i, len));
                         points.push(applyCtm(pt));
                     }
-                    if (points.length > 1) outPaths.push(points);
+                    if (points.length > 1) outPaths.push({ type: 'line', points });
                 } catch (err) { /* ignore */ }
             }
 
@@ -277,17 +396,35 @@ export default function VectorPlotter() {
         const scaleY = s.height / os.h;
         gcode.push(`; --- ${item.name} ---`);
         itemPaths.forEach((poly) => {
-          if (poly.length < 2) return;
-          const startX = round((poly[0].x * scaleX) + s.posX);
-          const startY = round((poly[0].y * scaleY) + s.posY);
-          gcode.push(`G0 X${startX} Y${startY} F${s.travelSpeed}`);
-          gcode.push(`G1 Z${s.zDown} F${s.workSpeed}`);
-          for (let i = 1; i < poly.length; i++) {
-            const x = round((poly[i].x * scaleX) + s.posX);
-            const y = round((poly[i].y * scaleY) + s.posY);
-            gcode.push(`G1 X${x} Y${y} F${s.workSpeed}`);
+          const seg = toSegment(poly);
+          if (!seg) return;
+          if (seg.type === 'arc') {
+            const startX = round((seg.start.x * scaleX) + s.posX);
+            const startY = round((seg.start.y * scaleY) + s.posY);
+            const endX = round((seg.end.x * scaleX) + s.posX);
+            const endY = round((seg.end.y * scaleY) + s.posY);
+            const centerX = (seg.center.x * scaleX) + s.posX;
+            const centerY = (seg.center.y * scaleY) + s.posY;
+            const I = round(centerX - (seg.start.x * scaleX + s.posX));
+            const J = round(centerY - (seg.start.y * scaleY + s.posY));
+            gcode.push(`G0 X${startX} Y${startY} F${s.travelSpeed}`);
+            gcode.push(`G1 Z${s.zDown} F${s.workSpeed}`);
+            gcode.push((seg.clockwise ? `G2` : `G3`) + ` X${endX} Y${endY} I${I} J${J} F${s.workSpeed}`);
+            gcode.push(`G0 Z${s.zUp} F${s.travelSpeed}`);
+          } else {
+            const pts = seg.points;
+            if (!pts || pts.length < 2) return;
+            const startX = round((pts[0].x * scaleX) + s.posX);
+            const startY = round((pts[0].y * scaleY) + s.posY);
+            gcode.push(`G0 X${startX} Y${startY} F${s.travelSpeed}`);
+            gcode.push(`G1 Z${s.zDown} F${s.workSpeed}`);
+            for (let i = 1; i < pts.length; i++) {
+              const x = round((pts[i].x * scaleX) + s.posX);
+              const y = round((pts[i].y * scaleY) + s.posY);
+              gcode.push(`G1 X${x} Y${y} F${s.workSpeed}`);
+            }
+            gcode.push(`G0 Z${s.zUp} F${s.travelSpeed}`);
           }
-          gcode.push(`G0 Z${s.zUp} F${s.travelSpeed}`);
         });
       });
 
