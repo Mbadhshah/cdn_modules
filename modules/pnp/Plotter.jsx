@@ -67,8 +67,8 @@ const BEZIER_FLATNESS_TOLERANCE = 0.05;
 
 // Option B: Detect when 4 cubic Bezier segments form a circle. Returns { cx, cy, r, clockwise } or null.
 function fitCircleFrom4Points(A, B, C, D) {
-  const tol = 0.02; // 2% radius tolerance
-  const angleTol = (20 * Math.PI) / 180; // ~20° for 90° spacing
+  const tol = 0.05; // 5% radius tolerance (design tools often approximate circles)
+  const angleTol = (25 * Math.PI) / 180; // ~25° for 90° spacing
   const midAB = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
   const midBC = { x: (B.x + C.x) / 2, y: (B.y + C.y) / 2 };
   const perpAB = { x: A.y - B.y, y: B.x - A.x };
@@ -215,7 +215,7 @@ function parsePathToSegments(d, applyCtm, precision = 0.5) {
   const NS = 'http://www.w3.org/2000/svg';
   const isRel = (c) => c === c.toLowerCase();
   const tol = BEZIER_FLATNESS_TOLERANCE;
-  const closedEpsilon = 1e-6;
+  const closedEpsilon = 0.001; // path units: allow small float error so 4-C circles are detected
 
   const pt = (a, b) => applyCtm({ x: a, y: b });
   const flushCubicBuffer = () => {
@@ -288,7 +288,9 @@ function parsePathToSegments(d, applyCtm, precision = 0.5) {
       lastCp2 = null;
       lastCp = null;
       const arc = svgArcToCenter(x, y, x2, y2, rx, ry, phiDeg, fA, fS);
-      if (arc && Math.abs(arc.rx - arc.ry) < 1e-6) {
+      const rMax = arc ? Math.max(arc.rx, arc.ry) || 1 : 1;
+      const isCircular = arc && (Math.abs(arc.rx - arc.ry) / rMax < 0.01);
+      if (arc && isCircular) {
         segments.push({
           type: 'arc',
           start: pt(x, y),
@@ -637,7 +639,7 @@ export default function VectorPlotter() {
                 let rx = parseFloat(el.getAttribute('rx')) || 0;
                 let ry = parseFloat(el.getAttribute('ry')) || 0;
                 if (rx <= 0 || ry <= 0) return;
-                if (Math.abs(rx - ry) < 1e-6) {
+                if (Math.abs(rx - ry) / Math.max(rx, ry) < 0.01) {
                     const start1 = applyCtm({ x: cx + rx, y: cy });
                     const end1 = applyCtm({ x: cx - rx, y: cy });
                     const center = applyCtm({ x: cx, y: cy });
@@ -1059,7 +1061,6 @@ export default function VectorPlotter() {
             )}
 
             <div className="plotter-hint">
-              Load images (.SVG). Paths are traced as lines (vectors).
             </div>
           </div>
         </div>
