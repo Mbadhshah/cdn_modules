@@ -62,6 +62,109 @@ function svgArcToCenter(x1, y1, x2, y2, rx, ry, phiDeg, fA, fS) {
   return { cx, cy, clockwise, rx, ry };
 }
 
+// Adaptive Bezier subdivision tolerance (path units; ~0.05mm for smooth curves)
+const BEZIER_FLATNESS_TOLERANCE = 0.05;
+
+// Option B: Detect when 4 cubic Bezier segments form a circle. Returns { cx, cy, r, clockwise } or null.
+function fitCircleFrom4Points(A, B, C, D) {
+  const tol = 0.02; // 2% radius tolerance
+  const angleTol = (20 * Math.PI) / 180; // ~20° for 90° spacing
+  const midAB = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+  const midBC = { x: (B.x + C.x) / 2, y: (B.y + C.y) / 2 };
+  const perpAB = { x: A.y - B.y, y: B.x - A.x };
+  const perpBC = { x: B.y - C.y, y: C.x - B.x };
+  const dmx = midBC.x - midAB.x;
+  const dmy = midBC.y - midAB.y;
+  const denom = perpAB.x * perpBC.y - perpAB.y * perpBC.x;
+  if (Math.abs(denom) < 1e-12) return null;
+  const t = (dmx * perpBC.y - dmy * perpBC.x) / denom;
+  const cx = midAB.x + t * perpAB.x;
+  const cy = midAB.y + t * perpAB.y;
+  const r = Math.hypot(A.x - cx, A.y - cy);
+  if (r < 1e-9) return null;
+  const rB = Math.hypot(B.x - cx, B.y - cy);
+  const rC = Math.hypot(C.x - cx, C.y - cy);
+  const rD = Math.hypot(D.x - cx, D.y - cy);
+  if (Math.abs(rB - r) / r > tol || Math.abs(rC - r) / r > tol || Math.abs(rD - r) / r > tol) return null;
+  const angle = (px, py) => Math.atan2(py - cy, px - cx);
+  const a0 = angle(A.x, A.y);
+  const a1 = angle(B.x, B.y);
+  const a2 = angle(C.x, C.y);
+  const a3 = angle(D.x, D.y);
+  const angles = [a0, a1, a2, a3].sort((u, v) => u - v);
+  for (let i = 0; i < 4; i++) {
+    const diff = i < 3 ? angles[i + 1] - angles[i] : 2 * Math.PI - (angles[3] - angles[0]);
+    if (Math.abs(diff - Math.PI / 2) > angleTol) return null;
+  }
+  const cross = (B.x - A.x) * (C.y - B.y) - (B.y - A.y) * (C.x - B.x);
+  const clockwise = cross > 0;
+  return { cx, cy, r, clockwise };
+}
+
+// Cubic Bezier at t: P0,P1,P2,P3
+function cubicAt(t, P0, P1, P2, P3) {
+  const u = 1 - t;
+  const u2 = u * u, u3 = u2 * u;
+  const t2 = t * t, t3 = t2 * t;
+  return {
+    x: u3 * P0.x + 3 * u2 * t * P1.x + 3 * u * t2 * P2.x + t3 * P3.x,
+    y: u3 * P0.y + 3 * u2 * t * P1.y + 3 * u * t2 * P2.y + t3 * P3.y,
+  };
+}
+
+// Quadratic Bezier at t: P0,P1,P2
+function quadAt(t, P0, P1, P2) {
+  const u = 1 - t;
+  const u2 = u * u;
+  const t2 = t * t;
+  return {
+    x: u2 * P0.x + 2 * u * t * P1.x + t2 * P2.x,
+    y: u2 * P0.y + 2 * u * t * P1.y + t2 * P2.y,
+  };
+}
+
+// Distance from point to line segment (P0-P1)
+function pointToLineDist(px, py, x0, y0, x1, y1) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const len = Math.hypot(dx, dy) || 1e-10;
+  const t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / (len * len)));
+  const projX = x0 + t * dx, projY = y0 + t * dy;
+  return Math.hypot(px - projX, py - projY);
+}
+
+// Recursive subdivision: cubic Bezier (de Casteljau at t=0.5) until flatness < tolerance.
+function adaptiveCubic(P0, P1, P2, P3, tolerance, out) {
+  const d1 = pointToLineDist(P1.x, P1.y, P0.x, P0.y, P3.x, P3.y);
+  const d2 = pointToLineDist(P2.x, P2.y, P0.x, P0.y, P3.x, P3.y);
+  if (d1 <= tolerance && d2 <= tolerance) {
+    out.push(P3);
+    return;
+  }
+  const L1 = { x: (P0.x + P1.x) / 2, y: (P0.y + P1.y) / 2 };
+  const H = { x: (P1.x + P2.x) / 2, y: (P1.y + P2.y) / 2 };
+  const R2 = { x: (P2.x + P3.x) / 2, y: (P2.y + P3.y) / 2 };
+  const L2 = { x: (L1.x + H.x) / 2, y: (L1.y + H.y) / 2 };
+  const R1 = { x: (H.x + R2.x) / 2, y: (H.y + R2.y) / 2 };
+  const M = { x: (L2.x + R1.x) / 2, y: (L2.y + R1.y) / 2 };
+  adaptiveCubic(P0, L1, L2, M, tolerance, out);
+  adaptiveCubic(M, R1, R2, P3, tolerance, out);
+}
+
+// Recursive subdivision: quadratic Bezier until flatness < tolerance.
+function adaptiveQuad(P0, P1, P2, tolerance, out) {
+  const d = pointToLineDist(P1.x, P1.y, P0.x, P0.y, P2.x, P2.y);
+  if (d <= tolerance) {
+    out.push(P2);
+    return;
+  }
+  const M = quadAt(0.5, P0, P1, P2);
+  const L1 = { x: (P0.x + P1.x) / 2, y: (P0.y + P1.y) / 2 };
+  const R1 = { x: (P1.x + P2.x) / 2, y: (P1.y + P2.y) / 2 };
+  const L2 = { x: (L1.x + R1.x) / 2, y: (L1.y + R1.y) / 2 };
+  adaptiveQuad(P0, L1, L2, tolerance, out);
+  adaptiveQuad(L2, R1, P2, tolerance, out);
+}
+
 // Tokenize path "d" into list of { cmd, args } (cmd keeps case for relative: m,l,a,...). Handles implicit repeated commands.
 function tokenizePathD(d) {
   const tokens = [];
@@ -99,17 +202,31 @@ function tokenizePathD(d) {
   return result;
 }
 
-// Parse path "d" to segments (line or arc). applyCtm transforms points; precision (mm) used for sampling curves.
+// Parse path "d" to segments (line or arc). applyCtm transforms points. Bezier uses adaptive subdivision (0.05).
 function parsePathToSegments(d, applyCtm, precision = 0.5) {
   const segments = [];
   const commands = tokenizePathD(d);
   if (commands.length === 0) return segments;
   let x = 0, y = 0;
   let subpathStartX = 0, subpathStartY = 0;
+  let lastCp2 = null; // second control of last C/S (for smooth cubic S)
+  let lastCp = null;   // control of last Q/T (for smooth quadratic T)
+  const cubicBuffer = []; // Option B: buffer 4 C's to detect circle
   const NS = 'http://www.w3.org/2000/svg';
   const isRel = (c) => c === c.toLowerCase();
+  const tol = BEZIER_FLATNESS_TOLERANCE;
+  const closedEpsilon = 1e-6;
 
   const pt = (a, b) => applyCtm({ x: a, y: b });
+  const flushCubicBuffer = () => {
+    cubicBuffer.forEach((cubic) => {
+      const out = [];
+      adaptiveCubic(cubic.P0, cubic.P1, cubic.P2, cubic.P3, tol, out);
+      const points = [pt(cubic.P0.x, cubic.P0.y), ...out.map((p) => pt(p.x, p.y))];
+      if (points.length > 1) segments.push({ type: 'line', points });
+    });
+    cubicBuffer.length = 0;
+  };
   const sampleCurve = (pathD) => {
     const temp = document.createElementNS(NS, 'path');
     temp.setAttribute('d', pathD);
@@ -126,35 +243,50 @@ function parsePathToSegments(d, applyCtm, precision = 0.5) {
   for (let k = 0; k < commands.length; k++) {
     const { cmd, args } = commands[k];
     if (cmd === 'M' || cmd === 'm') {
+      flushCubicBuffer();
       if (isRel(cmd)) { x += args[0]; y += args[1]; } else { x = args[0]; y = args[1]; }
       subpathStartX = x;
       subpathStartY = y;
+      lastCp2 = null;
+      lastCp = null;
       continue;
     }
     if (cmd === 'L' || cmd === 'l') {
+      flushCubicBuffer();
       const x2 = isRel(cmd) ? x + args[0] : args[0];
       const y2 = isRel(cmd) ? y + args[1] : args[1];
       segments.push({ type: 'line', points: [pt(x, y), pt(x2, y2)] });
       x = x2;
       y = y2;
+      lastCp2 = null;
+      lastCp = null;
       continue;
     }
     if (cmd === 'H' || cmd === 'h') {
+      flushCubicBuffer();
       const x2 = isRel(cmd) ? x + args[0] : args[0];
       segments.push({ type: 'line', points: [pt(x, y), pt(x2, y)] });
       x = x2;
+      lastCp2 = null;
+      lastCp = null;
       continue;
     }
     if (cmd === 'V' || cmd === 'v') {
+      flushCubicBuffer();
       const y2 = isRel(cmd) ? y + args[0] : args[0];
       segments.push({ type: 'line', points: [pt(x, y), pt(x, y2)] });
       y = y2;
+      lastCp2 = null;
+      lastCp = null;
       continue;
     }
     if (cmd === 'A' || cmd === 'a') {
+      flushCubicBuffer();
       const rx = args[0], ry = args[1], phiDeg = args[2], fA = Math.round(args[3]), fS = Math.round(args[4]);
       const x2 = isRel(cmd) ? x + args[5] : args[5];
       const y2 = isRel(cmd) ? y + args[6] : args[6];
+      lastCp2 = null;
+      lastCp = null;
       const arc = svgArcToCenter(x, y, x2, y2, rx, ry, phiDeg, fA, fS);
       if (arc && Math.abs(arc.rx - arc.ry) < 1e-6) {
         segments.push({
@@ -174,6 +306,9 @@ function parsePathToSegments(d, applyCtm, precision = 0.5) {
       continue;
     }
     if (cmd === 'Z' || cmd === 'z') {
+      flushCubicBuffer();
+      lastCp2 = null;
+      lastCp = null;
       if (x !== subpathStartX || y !== subpathStartY) {
         segments.push({ type: 'line', points: [pt(x, y), pt(subpathStartX, subpathStartY)] });
       }
@@ -181,37 +316,97 @@ function parsePathToSegments(d, applyCtm, precision = 0.5) {
       y = subpathStartY;
       continue;
     }
-    if (cmd === 'C' || cmd === 'c' || cmd === 'S' || cmd === 's' || cmd === 'Q' || cmd === 'q' || cmd === 'T' || cmd === 't') {
-      let pathD;
-      let endX, endY;
-      if (cmd === 'C' || cmd === 'c') {
-        const x1 = isRel(cmd) ? x + args[0] : args[0], y1 = isRel(cmd) ? y + args[1] : args[1];
-        const x2 = isRel(cmd) ? x + args[2] : args[2], y2 = isRel(cmd) ? y + args[3] : args[3];
-        endX = isRel(cmd) ? x + args[4] : args[4];
-        endY = isRel(cmd) ? y + args[5] : args[5];
-        pathD = `M${x} ${y} C${x1} ${y1} ${x2} ${y2} ${endX} ${endY}`;
-      } else if (cmd === 'S' || cmd === 's') {
-        const x2 = isRel(cmd) ? x + args[0] : args[0], y2 = isRel(cmd) ? y + args[1] : args[1];
-        endX = isRel(cmd) ? x + args[2] : args[2];
-        endY = isRel(cmd) ? y + args[3] : args[3];
-        pathD = `M${x} ${y} S${x2} ${y2} ${endX} ${endY}`;
-      } else if (cmd === 'Q' || cmd === 'q') {
-        const x1 = isRel(cmd) ? x + args[0] : args[0], y1 = isRel(cmd) ? y + args[1] : args[1];
-        endX = isRel(cmd) ? x + args[2] : args[2];
-        endY = isRel(cmd) ? y + args[3] : args[3];
-        pathD = `M${x} ${y} Q${x1} ${y1} ${endX} ${endY}`;
-      } else {
-        endX = isRel(cmd) ? x + args[0] : args[0];
-        endY = isRel(cmd) ? y + args[1] : args[1];
-        pathD = `M${x} ${y} T${endX} ${endY}`;
+    if (cmd === 'C' || cmd === 'c') {
+      const x1 = isRel(cmd) ? x + args[0] : args[0], y1 = isRel(cmd) ? y + args[1] : args[1];
+      const x2 = isRel(cmd) ? x + args[2] : args[2], y2 = isRel(cmd) ? y + args[3] : args[3];
+      const endX = isRel(cmd) ? x + args[4] : args[4];
+      const endY = isRel(cmd) ? y + args[5] : args[5];
+      lastCp2 = { x: x2, y: y2 };
+      lastCp = null;
+      const P0 = { x, y }, P1 = { x: x1, y: y1 }, P2 = { x: x2, y: y2 }, P3 = { x: endX, y: endY };
+      cubicBuffer.push({ P0, P1, P2, P3 });
+      if (cubicBuffer.length === 4) {
+        const A = cubicBuffer[0].P0, B = cubicBuffer[0].P3, C = cubicBuffer[1].P3, D = cubicBuffer[2].P3;
+        const closed = Math.hypot(cubicBuffer[3].P3.x - A.x, cubicBuffer[3].P3.y - A.y) < closedEpsilon;
+        if (closed) {
+          const fit = fitCircleFrom4Points(A, B, C, D);
+          if (fit) {
+            segments.push({ type: 'arc', start: pt(A.x, A.y), end: pt(C.x, C.y), center: pt(fit.cx, fit.cy), clockwise: fit.clockwise });
+            segments.push({ type: 'arc', start: pt(C.x, C.y), end: pt(A.x, A.y), center: pt(fit.cx, fit.cy), clockwise: fit.clockwise });
+            x = cubicBuffer[3].P3.x;
+            y = cubicBuffer[3].P3.y;
+            cubicBuffer.length = 0;
+            continue;
+          }
+        }
+        for (const cubic of cubicBuffer) {
+          const out = [];
+          adaptiveCubic(cubic.P0, cubic.P1, cubic.P2, cubic.P3, tol, out);
+          const points = [pt(cubic.P0.x, cubic.P0.y), ...out.map((p) => pt(p.x, p.y))];
+          if (points.length > 1) segments.push({ type: 'line', points });
+        }
+        x = cubicBuffer[3].P3.x;
+        y = cubicBuffer[3].P3.y;
+        cubicBuffer.length = 0;
+        continue;
       }
-      const points = sampleCurve(pathD);
+      x = endX;
+      y = endY;
+      continue;
+    }
+    if (cmd === 'S' || cmd === 's') {
+      flushCubicBuffer();
+      const cp2x = isRel(cmd) ? x + args[0] : args[0], cp2y = isRel(cmd) ? y + args[1] : args[1];
+      const endX = isRel(cmd) ? x + args[2] : args[2];
+      const endY = isRel(cmd) ? y + args[3] : args[3];
+      const cp1x = lastCp2 != null ? 2 * x - lastCp2.x : x;
+      const cp1y = lastCp2 != null ? 2 * y - lastCp2.y : y;
+      lastCp2 = { x: cp2x, y: cp2y };
+      lastCp = null;
+      const P0 = { x, y }, P1 = { x: cp1x, y: cp1y }, P2 = { x: cp2x, y: cp2y }, P3 = { x: endX, y: endY };
+      const out = [];
+      adaptiveCubic(P0, P1, P2, P3, tol, out);
+      const points = [pt(x, y), ...out.map((p) => pt(p.x, p.y))];
+      if (points.length > 1) segments.push({ type: 'line', points });
+      x = endX;
+      y = endY;
+      continue;
+    }
+    if (cmd === 'Q' || cmd === 'q') {
+      flushCubicBuffer();
+      const cpx = isRel(cmd) ? x + args[0] : args[0], cpy = isRel(cmd) ? y + args[1] : args[1];
+      const endX = isRel(cmd) ? x + args[2] : args[2];
+      const endY = isRel(cmd) ? y + args[3] : args[3];
+      lastCp = { x: cpx, y: cpy };
+      lastCp2 = null;
+      const P0 = { x, y }, P1 = { x: cpx, y: cpy }, P2 = { x: endX, y: endY };
+      const out = [];
+      adaptiveQuad(P0, P1, P2, tol, out);
+      const points = [pt(x, y), ...out.map((p) => pt(p.x, p.y))];
+      if (points.length > 1) segments.push({ type: 'line', points });
+      x = endX;
+      y = endY;
+      continue;
+    }
+    if (cmd === 'T' || cmd === 't') {
+      flushCubicBuffer();
+      const endX = isRel(cmd) ? x + args[0] : args[0];
+      const endY = isRel(cmd) ? y + args[1] : args[1];
+      const cpx = lastCp != null ? 2 * x - lastCp.x : x;
+      const cpy = lastCp != null ? 2 * y - lastCp.y : y;
+      lastCp = { x: cpx, y: cpy };
+      lastCp2 = null;
+      const P0 = { x, y }, P1 = { x: cpx, y: cpy }, P2 = { x: endX, y: endY };
+      const out = [];
+      adaptiveQuad(P0, P1, P2, tol, out);
+      const points = [pt(x, y), ...out.map((p) => pt(p.x, p.y))];
       if (points.length > 1) segments.push({ type: 'line', points });
       x = endX;
       y = endY;
       continue;
     }
   }
+  flushCubicBuffer();
   return segments;
 }
 
@@ -311,6 +506,7 @@ export default function VectorPlotter() {
   // --- Helpers (1 decimal place for settings) ---
   const round = (num) => Math.round(num * 10) / 10;
   const round1 = (num) => (typeof num === 'number' && !Number.isNaN(num) ? Math.round(num * 10) / 10 : num);
+  const roundGcode = (num) => Math.round(num * 1000) / 1000; // 3 decimals for CNC
 
   // --- SVG Parsing Engine (returns { paths, origW, origH } or null) ---
   const parseSVG = (svgText) => {
@@ -462,17 +658,38 @@ export default function VectorPlotter() {
                 return;
             }
 
-            if (['rect', 'line', 'polyline', 'polygon'].includes(tag)) {
-                try {
-                    const len = el.getTotalLength();
-                    if (len <= 0) return;
-                    const points = [];
-                    for (let i = 0; i <= len; i += precision) {
-                        const pt = el.getPointAtLength(Math.min(i, len));
-                        points.push(applyCtm(pt));
-                    }
-                    if (points.length > 1) outPaths.push({ type: 'line', points });
-                } catch (err) { /* ignore */ }
+            // Straight-line elements: use vertices only (no sampling) so lines stay perfectly straight
+            if (tag === 'line') {
+                const x1 = parseFloat(el.getAttribute('x1')) || 0, y1 = parseFloat(el.getAttribute('y1')) || 0;
+                const x2 = parseFloat(el.getAttribute('x2')) || 0, y2 = parseFloat(el.getAttribute('y2')) || 0;
+                outPaths.push({ type: 'line', points: [applyCtm({ x: x1, y: y1 }), applyCtm({ x: x2, y: y2 })] });
+                return;
+            }
+            if (tag === 'rect') {
+                const x = parseFloat(el.getAttribute('x')) || 0, y = parseFloat(el.getAttribute('y')) || 0;
+                const w = parseFloat(el.getAttribute('width')) || 0, h = parseFloat(el.getAttribute('height')) || 0;
+                if (w <= 0 || h <= 0) return;
+                const p0 = applyCtm({ x, y });
+                const p1 = applyCtm({ x: x + w, y });
+                const p2 = applyCtm({ x: x + w, y: y + h });
+                const p3 = applyCtm({ x, y: y + h });
+                outPaths.push({ type: 'line', points: [p0, p1] });
+                outPaths.push({ type: 'line', points: [p1, p2] });
+                outPaths.push({ type: 'line', points: [p2, p3] });
+                outPaths.push({ type: 'line', points: [p3, p0] });
+                return;
+            }
+            if (tag === 'polyline' || tag === 'polygon') {
+                const pointsAttr = el.getAttribute('points') || '';
+                const nums = pointsAttr.trim().split(/[\s,]+/).map(parseFloat).filter((n) => !Number.isNaN(n));
+                if (nums.length < 4) return;
+                const verts = [];
+                for (let i = 0; i + 1 < nums.length; i += 2) verts.push(applyCtm({ x: nums[i], y: nums[i + 1] }));
+                for (let i = 0; i < verts.length - 1; i++)
+                    outPaths.push({ type: 'line', points: [verts[i], verts[i + 1]] });
+                if (tag === 'polygon' && verts.length > 2)
+                    outPaths.push({ type: 'line', points: [verts[verts.length - 1], verts[0]] });
+                return;
             }
 
             if (tag === 'g' || tag === 'symbol') {
@@ -542,14 +759,14 @@ export default function VectorPlotter() {
           const seg = toSegment(poly);
           if (!seg) return;
           if (seg.type === 'arc') {
-            const startX = round((seg.start.x * scaleX) + s.posX);
-            const startY = round((seg.start.y * scaleY) + s.posY);
-            const endX = round((seg.end.x * scaleX) + s.posX);
-            const endY = round((seg.end.y * scaleY) + s.posY);
+            const startX = roundGcode((seg.start.x * scaleX) + s.posX);
+            const startY = roundGcode((seg.start.y * scaleY) + s.posY);
+            const endX = roundGcode((seg.end.x * scaleX) + s.posX);
+            const endY = roundGcode((seg.end.y * scaleY) + s.posY);
             const centerX = (seg.center.x * scaleX) + s.posX;
             const centerY = (seg.center.y * scaleY) + s.posY;
-            const I = round(centerX - (seg.start.x * scaleX + s.posX));
-            const J = round(centerY - (seg.start.y * scaleY + s.posY));
+            const I = roundGcode(centerX - (seg.start.x * scaleX + s.posX));
+            const J = roundGcode(centerY - (seg.start.y * scaleY + s.posY));
             gcode.push(`G0 X${startX} Y${startY} F${s.travelSpeed}`);
             gcode.push(`G1 Z${s.zDown} F${s.workSpeed}`);
             gcode.push((seg.clockwise ? `G2` : `G3`) + ` X${endX} Y${endY} I${I} J${J} F${s.workSpeed}`);
@@ -557,14 +774,14 @@ export default function VectorPlotter() {
           } else {
             const pts = seg.points;
             if (!pts || pts.length < 2) return;
-            const startX = round((pts[0].x * scaleX) + s.posX);
-            const startY = round((pts[0].y * scaleY) + s.posY);
+            const startX = roundGcode((pts[0].x * scaleX) + s.posX);
+            const startY = roundGcode((pts[0].y * scaleY) + s.posY);
             gcode.push(`G0 X${startX} Y${startY} F${s.travelSpeed}`);
             gcode.push(`G1 Z${s.zDown} F${s.workSpeed}`);
             let lastX = startX, lastY = startY;
             for (let i = 1; i < pts.length; i++) {
-              const x = round((pts[i].x * scaleX) + s.posX);
-              const y = round((pts[i].y * scaleY) + s.posY);
+              const x = roundGcode((pts[i].x * scaleX) + s.posX);
+              const y = roundGcode((pts[i].y * scaleY) + s.posY);
               if (x === lastX && y === lastY) continue; // skip duplicate points
               lastX = x;
               lastY = y;
