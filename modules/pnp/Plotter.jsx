@@ -165,6 +165,369 @@ function adaptiveQuad(P0, P1, P2, tolerance, out) {
   adaptiveQuad(L2, R1, P2, tolerance, out);
 }
 
+// --- GCode (ggcode-style) arc fitting helpers ---
+function distPt(p1, p2) {
+  return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+}
+function pointAtCubic(t, p0, p1, p2, p3) {
+  const mt = 1 - t;
+  const mt2 = mt * mt;
+  const mt3 = mt2 * mt;
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return {
+    x: mt3 * p0.x + 3 * mt2 * t * p1.x + 3 * mt * t2 * p2.x + t3 * p3.x,
+    y: mt3 * p0.y + 3 * mt2 * t * p1.y + 3 * mt * t2 * p2.y + t3 * p3.y,
+  };
+}
+function fitCircle3Points(a, b, c) {
+  const midAB = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  const dyAB = b.y - a.y;
+  const dxAB = b.x - a.x;
+  const midBC = { x: (b.x + c.x) / 2, y: (b.y + c.y) / 2 };
+  const dyBC = c.y - b.y;
+  const dxBC = c.x - b.x;
+  const det = dxAB * dyBC - dyAB * dxBC;
+  if (Math.abs(det) < 1e-6) return null;
+  const C1 = midAB.x * dxAB + midAB.y * dyAB;
+  const C2 = midBC.x * dxBC + midBC.y * dyBC;
+  const cx = (C1 * dyBC - C2 * dyAB) / det;
+  const cy = (dxAB * C2 - dxBC * C1) / det;
+  const center = { x: cx, y: cy };
+  const r = distPt(center, a);
+  const cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  return { center, r, cw: cross < 0 };
+}
+function splitCubic(p0, p1, p2, p3, t) {
+  const lerp = (a, b, s) => ({ x: a.x + (b.x - a.x) * s, y: a.y + (b.y - a.y) * s });
+  const p01 = lerp(p0, p1, t);
+  const p12 = lerp(p1, p2, t);
+  const p23 = lerp(p2, p3, t);
+  const p012 = lerp(p01, p12, t);
+  const p123 = lerp(p12, p23, t);
+  const p0123 = lerp(p012, p123, t);
+  return { left: [p0, p01, p012, p0123], right: [p0123, p123, p23, p3] };
+}
+// SVG endpoint arc to center (circular arc: rx=ry, rot unused for center).
+function findCenterArc(x1, y1, x2, y2, r, large, sweep) {
+  const dx2 = (x1 - x2) / 2;
+  const dy2 = (y1 - y2) / 2;
+  const x1p = dx2;
+  const y1p = dy2;
+  const denom = r * r * x1p * x1p + r * r * y1p * y1p;
+  if (denom < 1e-12) return { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
+  let val = (r * r * r * r - r * r * x1p * x1p - r * r * y1p * y1p) / denom;
+  val = Math.max(0, val);
+  let coef = Math.sqrt(val);
+  if (large === sweep) coef = -coef;
+  const cxp = coef * (r * y1p / r);
+  const cyp = coef * (-(r * x1p) / r);
+  return { x: cxp + (x1 + x2) / 2, y: cyp + (y1 + y2) / 2 };
+}
+function fitArcsToCubic(p0, p1, p2, p3, tolerance, depth) {
+  if (depth > 6) return [{ type: 'line', start: p0, end: p3 }];
+  const mid = pointAtCubic(0.5, p0, p1, p2, p3);
+  const arc = fitCircle3Points(p0, mid, p3);
+  let maxErr = Infinity;
+  if (arc && arc.r < 10000) {
+    const pt1 = pointAtCubic(0.25, p0, p1, p2, p3);
+    const pt2 = pointAtCubic(0.75, p0, p1, p2, p3);
+    maxErr = Math.max(
+      Math.abs(distPt(pt1, arc.center) - arc.r),
+      Math.abs(distPt(pt2, arc.center) - arc.r)
+    );
+  } else if (!arc) {
+    return [{ type: 'line', start: p0, end: p3 }];
+  }
+  if (maxErr < tolerance && arc) {
+    return [{ type: 'arc', start: p0, end: p3, center: arc.center, cw: arc.cw }];
+  }
+  const split = splitCubic(p0, p1, p2, p3, 0.5);
+  return [
+    ...fitArcsToCubic(split.left[0], split.left[1], split.left[2], split.left[3], tolerance, depth + 1),
+    ...fitArcsToCubic(split.right[0], split.right[1], split.right[2], split.right[3], tolerance, depth + 1),
+  ];
+}
+
+// GGcode-style: explode path "d" into segments { type: 'arc'|'line'|'curve', d?, p1, p2, params }. applyCtm transforms points.
+function explodePathToSegments(d, applyCtm) {
+  const out = [];
+  const pt = (x, y) => applyCtm({ x, y });
+  const commandPattern = /([a-zA-Z])([^a-zA-Z]*)/g;
+  let match;
+  let currentX = 0;
+  let currentY = 0;
+  let startX = 0;
+  let startY = 0;
+  let lastControlX = 0;
+  let lastControlY = 0;
+  let lastCmdWasCurve = false;
+  const updateCurrent = (x, y) => {
+    currentX = x;
+    currentY = y;
+  };
+  while ((match = commandPattern.exec(d)) !== null) {
+    const command = match[1];
+    const args = match[2].trim().match(/-?[\d.]+(?:e-?\d+)?/g)?.map(parseFloat) || [];
+    const lowerCmd = command.toLowerCase();
+    const isRelative = command === lowerCmd;
+    let isCurveBlock = false;
+    switch (lowerCmd) {
+      case 'm':
+        if (args.length >= 2) {
+          currentX = isRelative ? currentX + args[0] : args[0];
+          currentY = isRelative ? currentY + args[1] : args[1];
+          startX = currentX;
+          startY = currentY;
+          for (let i = 2; i < args.length; i += 2) {
+            const nx = isRelative ? currentX + args[i] : args[i];
+            const ny = isRelative ? currentY + args[i + 1] : args[i + 1];
+            out.push({ type: 'line', d: `M${currentX},${currentY} L${nx},${ny}`, p1: pt(currentX, currentY), p2: pt(nx, ny), params: {} });
+            updateCurrent(nx, ny);
+          }
+        }
+        break;
+      case 'l':
+        for (let i = 0; i < args.length; i += 2) {
+          const nx = isRelative ? currentX + args[i] : args[i];
+          const ny = isRelative ? currentY + args[i + 1] : args[i + 1];
+          out.push({ type: 'line', d: `M${currentX},${currentY} L${nx},${ny}`, p1: pt(currentX, currentY), p2: pt(nx, ny), params: {} });
+          updateCurrent(nx, ny);
+        }
+        break;
+      case 'h':
+        for (let i = 0; i < args.length; i++) {
+          const nx = isRelative ? currentX + args[i] : args[i];
+          out.push({ type: 'line', d: `M${currentX},${currentY} L${nx},${currentY}`, p1: pt(currentX, currentY), p2: pt(nx, currentY), params: {} });
+          updateCurrent(nx, currentY);
+        }
+        break;
+      case 'v':
+        for (let i = 0; i < args.length; i++) {
+          const ny = isRelative ? currentY + args[i] : args[i];
+          out.push({ type: 'line', d: `M${currentX},${currentY} L${currentX},${ny}`, p1: pt(currentX, currentY), p2: pt(currentX, ny), params: {} });
+          updateCurrent(currentX, ny);
+        }
+        break;
+      case 'z':
+        if (currentX !== startX || currentY !== startY) {
+          out.push({ type: 'line', d: `M${currentX},${currentY} L${startX},${startY}`, p1: pt(currentX, currentY), p2: pt(startX, startY), params: {} });
+        }
+        updateCurrent(startX, startY);
+        break;
+      case 'c':
+      case 's': {
+        let i = 0;
+        while (i < args.length) {
+          let x1, y1, x2, y2, x, y;
+          if (lowerCmd === 'c') {
+            x1 = isRelative ? currentX + args[i] : args[i];
+            y1 = isRelative ? currentY + args[i + 1] : args[i + 1];
+            x2 = isRelative ? currentX + args[i + 2] : args[i + 2];
+            y2 = isRelative ? currentY + args[i + 3] : args[i + 3];
+            x = isRelative ? currentX + args[i + 4] : args[i + 4];
+            y = isRelative ? currentY + args[i + 5] : args[i + 5];
+            i += 6;
+          } else {
+            x1 = lastCmdWasCurve ? 2 * currentX - lastControlX : currentX;
+            y1 = lastCmdWasCurve ? 2 * currentY - lastControlY : currentY;
+            x2 = isRelative ? currentX + args[i] : args[i];
+            y2 = isRelative ? currentY + args[i + 1] : args[i + 1];
+            x = isRelative ? currentX + args[i + 2] : args[i + 2];
+            y = isRelative ? currentY + args[i + 3] : args[i + 3];
+            i += 4;
+          }
+          const start = pt(currentX, currentY);
+          const end = pt(x, y);
+          out.push({
+            type: 'curve',
+            d: `M${currentX},${currentY} C${x1},${y1} ${x2},${y2} ${x},${y}`,
+            p1: start,
+            p2: end,
+            params: { type: 'cubic', x1, y1, x2, y2, x, y },
+          });
+          lastControlX = x2;
+          lastControlY = y2;
+          lastCmdWasCurve = true;
+          isCurveBlock = true;
+          updateCurrent(x, y);
+        }
+        break;
+      }
+      case 'q':
+      case 't': {
+        let j = 0;
+        while (j < args.length) {
+          let x1, y1, x, y;
+          if (lowerCmd === 'q') {
+            x1 = isRelative ? currentX + args[j] : args[j];
+            y1 = isRelative ? currentY + args[j + 1] : args[j + 1];
+            x = isRelative ? currentX + args[j + 2] : args[j + 2];
+            y = isRelative ? currentY + args[j + 3] : args[j + 3];
+            j += 4;
+          } else {
+            x1 = lastCmdWasCurve ? 2 * currentX - lastControlX : currentX;
+            y1 = lastCmdWasCurve ? 2 * currentY - lastControlY : currentY;
+            x = isRelative ? currentX + args[j] : args[j];
+            y = isRelative ? currentY + args[j + 1] : args[j + 1];
+            j += 2;
+          }
+          out.push({
+            type: 'curve',
+            d: `M${currentX},${currentY} Q${x1},${y1} ${x},${y}`,
+            p1: pt(currentX, currentY),
+            p2: pt(x, y),
+            params: { type: 'quadratic', x1, y1, x, y },
+          });
+          lastControlX = x1;
+          lastControlY = y1;
+          lastCmdWasCurve = true;
+          isCurveBlock = true;
+          updateCurrent(x, y);
+        }
+        break;
+      }
+      case 'a':
+        for (let k = 0; k < args.length; k += 7) {
+          const rx = args[k];
+          const ry = args[k + 1];
+          const rot = args[k + 2];
+          const large = args[k + 3];
+          const sweep = args[k + 4];
+          const x = isRelative ? currentX + args[k + 5] : args[k + 5];
+          const y = isRelative ? currentY + args[k + 6] : args[k + 6];
+          out.push({
+            type: 'arc',
+            d: `M${currentX},${currentY} A${rx} ${ry} ${rot} ${large} ${sweep} ${x} ${y}`,
+            p1: pt(currentX, currentY),
+            p2: pt(x, y),
+            params: { rx, ry, rot, large, sweep },
+          });
+          updateCurrent(x, y);
+        }
+        break;
+      default:
+        break;
+    }
+    if (!isCurveBlock) lastCmdWasCurve = false;
+  }
+  return out;
+}
+
+// GGcode-style G-code generator: connectivity-aware, arc fitting for curves. Segments: { type, p1, p2, params?, d? }.
+function ggcodeGenerateGCode(segments, scale, workFeed, travelFeed, safeZ, cutZ, isLaser) {
+  const code = [];
+  code.push('; Generated by VectorPlotter Studio (ggcode-style)');
+  code.push('G90');
+  code.push('G21');
+  code.push('G17');
+  if (!isLaser) {
+    code.push(`G0 Z${safeZ} F${travelFeed}`);
+  } else {
+    code.push('M5');
+  }
+  let lastX = null;
+  let lastY = null;
+  let isCutting = false;
+  const fmt = (n) => (typeof n === 'number' ? (n * scale).toFixed(3) : String(n));
+  const ARC_TOLERANCE = Math.max(0.05, 0.1 / scale);
+  const DISCONTINUOUS_MM = 0.05;
+
+  segments.forEach((seg) => {
+    const startX = seg.p1.x;
+    const startY = seg.p1.y;
+    const endX = seg.p2.x;
+    const endY = seg.p2.y;
+    const distToStart = lastX == null ? Infinity : Math.hypot(startX - lastX, startY - lastY);
+    const isDiscontinuous = distToStart > DISCONTINUOUS_MM;
+
+    if (isDiscontinuous) {
+      if (isCutting) {
+        if (isLaser) code.push('M5');
+        else code.push(`G0 Z${safeZ} F${travelFeed}`);
+        isCutting = false;
+      }
+      code.push(`G0 X${fmt(startX)} Y${fmt(startY)} F${travelFeed}`);
+      if (isLaser) code.push('M3 S1000');
+      else code.push(`G1 Z${cutZ} F${workFeed}`);
+      isCutting = true;
+    } else if (!isCutting) {
+      if (isLaser) code.push('M3 S1000');
+      else code.push(`G1 Z${cutZ} F${workFeed}`);
+      isCutting = true;
+    }
+
+    if (seg.type === 'line') {
+      code.push(`G1 X${fmt(endX)} Y${fmt(endY)} F${workFeed}`);
+      lastX = endX;
+      lastY = endY;
+    } else if (seg.type === 'arc') {
+      const { rx, ry, large, sweep } = seg.params || {};
+      if (typeof rx !== 'number' || Math.abs(rx - ry) > 0.001) {
+        const tempPath = typeof document !== 'undefined' && document.createElementNS
+          ? document.createElementNS('http://www.w3.org/2000/svg', 'path')
+          : null;
+        if (tempPath && seg.d) {
+          tempPath.setAttribute('d', seg.d);
+          const len = tempPath.getTotalLength();
+          const steps = Math.max(8, Math.ceil(len / 0.5));
+          for (let i = 1; i <= steps; i++) {
+            const p = tempPath.getPointAtLength((i / steps) * len);
+            code.push(`G1 X${fmt(p.x)} Y${fmt(p.y)} F${workFeed}`);
+          }
+        } else {
+          code.push(`G1 X${fmt(endX)} Y${fmt(endY)} F${workFeed}`);
+        }
+        lastX = endX;
+        lastY = endY;
+      } else {
+        const center = findCenterArc(startX, startY, endX, endY, rx, large, sweep);
+        const I = center.x - startX;
+        const J = center.y - startY;
+        const cmd = sweep === 1 ? 'G2' : 'G3';
+        code.push(`${cmd} X${fmt(endX)} Y${fmt(endY)} I${fmt(I)} J${fmt(J)} F${workFeed}`);
+        lastX = endX;
+        lastY = endY;
+      }
+    } else if (seg.type === 'curve') {
+      let points;
+      if (seg.params?.type === 'quadratic') {
+        const p0 = { x: startX, y: startY };
+        const p1 = { x: seg.params.x1, y: seg.params.y1 };
+        const p2 = { x: endX, y: endY };
+        const cp1 = { x: p0.x + (2 / 3) * (p1.x - p0.x), y: p0.y + (2 / 3) * (p1.y - p0.y) };
+        const cp2 = { x: p2.x + (2 / 3) * (p1.x - p2.x), y: p2.y + (2 / 3) * (p1.y - p2.y) };
+        points = [p0, cp1, cp2, p2];
+      } else {
+        points = [
+          { x: startX, y: startY },
+          { x: seg.params.x1, y: seg.params.y1 },
+          { x: seg.params.x2, y: seg.params.y2 },
+          { x: endX, y: endY },
+        ];
+      }
+      const results = fitArcsToCubic(points[0], points[1], points[2], points[3], ARC_TOLERANCE, 0);
+      results.forEach((item) => {
+        if (item.type === 'line') {
+          code.push(`G1 X${fmt(item.end.x)} Y${fmt(item.end.y)} F${workFeed}`);
+        } else {
+          const I = item.center.x - item.start.x;
+          const J = item.center.y - item.start.y;
+          code.push(`${item.cw ? 'G2' : 'G3'} X${fmt(item.end.x)} Y${fmt(item.end.y)} I${fmt(I)} J${fmt(J)} F${workFeed}`);
+        }
+      });
+      lastX = endX;
+      lastY = endY;
+    }
+  });
+
+  if (isLaser) code.push('M5');
+  else code.push(`G0 Z${safeZ} F${travelFeed}`);
+  code.push('G0 X0 Y0 F' + travelFeed);
+  code.push('M2');
+  return code.join('\n');
+}
+
 // Tokenize path "d" into list of { cmd, args } (cmd keeps case for relative: m,l,a,...). Handles implicit repeated commands.
 function tokenizePathD(d) {
   const tokens = [];
@@ -412,11 +775,11 @@ function parsePathToSegments(d, applyCtm, precision = 0.5) {
   return segments;
 }
 
-// Path segment: either { type: 'line', points: [{x,y},...] } or { type: 'arc', start, end, center, clockwise }.
-// Normalize so backward compat: if a path item is a plain array of points, treat as { type: 'line', points }.
+// Path segment: GGcode-style { type: 'arc'|'line'|'curve', p1, p2, params? } or legacy { type: 'arc', start, end, center, clockwise } / { type: 'line', points }.
 function toSegment(poly) {
   if (!poly) return null;
-  if (poly.type === 'arc') return poly;
+  if (poly.type && poly.p1 && poly.p2 !== undefined) return poly;
+  if (poly.type === 'arc' && poly.start && poly.center) return poly;
   if (poly.type === 'line' && poly.points) return poly;
   if (Array.isArray(poly)) return { type: 'line', points: poly };
   return null;
@@ -445,7 +808,37 @@ function PlotItem({ item, scale, isSelected }) {
       const seg = toSegment(poly);
       if (!seg) return;
       ctx.beginPath();
-      if (seg.type === 'arc') {
+      // GGcode-style segment: { type, p1, p2, params? }
+      if (seg.p1 && seg.p2 !== undefined) {
+        const x1 = seg.p1.x * scaleFactorX, y1 = seg.p1.y * scaleFactorY;
+        const x2 = seg.p2.x * scaleFactorX, y2 = seg.p2.y * scaleFactorY;
+        if (seg.type === 'arc' && seg.params && typeof seg.params.rx === 'number') {
+          const center = findCenterArc(seg.p1.x, seg.p1.y, seg.p2.x, seg.p2.y, seg.params.rx, seg.params.large, seg.params.sweep);
+          const cx = center.x * scaleFactorX, cy = center.y * scaleFactorY;
+          const r = Math.hypot(x1 - cx, y1 - cy);
+          const startAngle = Math.atan2(y1 - cy, x1 - cx);
+          const endAngle = Math.atan2(y2 - cy, x2 - cx);
+          ctx.arc(cx, cy, r, startAngle, endAngle, seg.params.sweep === 1);
+        } else if (seg.type === 'curve' && seg.params) {
+          let points;
+          if (seg.params.type === 'quadratic') {
+            const out = [];
+            adaptiveQuad({ x: seg.p1.x, y: seg.p1.y }, { x: seg.params.x1, y: seg.params.y1 }, { x: seg.p2.x, y: seg.p2.y }, BEZIER_FLATNESS_TOLERANCE, out);
+            points = [seg.p1, ...out];
+          } else {
+            const out = [];
+            adaptiveCubic({ x: seg.p1.x, y: seg.p1.y }, { x: seg.params.x1, y: seg.params.y1 }, { x: seg.params.x2, y: seg.params.y2 }, { x: seg.p2.x, y: seg.p2.y }, BEZIER_FLATNESS_TOLERANCE, out);
+            points = [seg.p1, ...out];
+          }
+          if (points.length >= 2) {
+            ctx.moveTo(points[0].x * scaleFactorX, points[0].y * scaleFactorY);
+            for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x * scaleFactorX, points[i].y * scaleFactorY);
+          }
+        } else {
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+        }
+      } else if (seg.type === 'arc' && seg.start && seg.center) {
         const sx = seg.start.x * scaleFactorX, sy = seg.start.y * scaleFactorY;
         const cx = seg.center.x * scaleFactorX, cy = seg.center.y * scaleFactorY;
         const ex = seg.end.x * scaleFactorX, ey = seg.end.y * scaleFactorY;
@@ -453,11 +846,9 @@ function PlotItem({ item, scale, isSelected }) {
         const startAngle = Math.atan2(sy - cy, sx - cx);
         const endAngle = Math.atan2(ey - cy, ex - cx);
         ctx.arc(cx, cy, r, startAngle, endAngle, seg.clockwise);
-      } else {
-        const pts = seg.points;
-        if (!pts || pts.length < 2) return;
-        ctx.moveTo(pts[0].x * scaleFactorX, pts[0].y * scaleFactorY);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x * scaleFactorX, pts[i].y * scaleFactorY);
+      } else if (seg.points && seg.points.length >= 2) {
+        ctx.moveTo(seg.points[0].x * scaleFactorX, seg.points[0].y * scaleFactorY);
+        for (let i = 1; i < seg.points.length; i++) ctx.lineTo(seg.points[i].x * scaleFactorX, seg.points[i].y * scaleFactorY);
       }
       ctx.stroke();
     });
@@ -612,10 +1003,11 @@ export default function VectorPlotter() {
                 };
             };
 
+            // GGcode-style segments: { type: 'arc'|'line'|'curve', p1, p2, params?, d? }
             if (tag === 'path') {
                 const d = el.getAttribute('d') || '';
                 if (!d.trim()) return;
-                const pathSegments = parsePathToSegments(d, applyCtm, precision);
+                const pathSegments = explodePathToSegments(d, applyCtm);
                 pathSegments.forEach((seg) => outPaths.push(seg));
                 return;
             }
@@ -625,46 +1017,29 @@ export default function VectorPlotter() {
                 const cy = parseFloat(el.getAttribute('cy')) || 0;
                 const r = parseFloat(el.getAttribute('r')) || 0;
                 if (r <= 0) return;
-                const start1 = applyCtm({ x: cx + r, y: cy });
-                const end1 = applyCtm({ x: cx - r, y: cy });
-                const center = applyCtm({ x: cx, y: cy });
-                outPaths.push({ type: 'arc', start: start1, end: end1, center, clockwise: false });
-                outPaths.push({ type: 'arc', start: end1, end: start1, center, clockwise: true });
+                const pStart = applyCtm({ x: cx - r, y: cy });
+                const pMid = applyCtm({ x: cx + r, y: cy });
+                outPaths.push({ type: 'arc', p1: pStart, p2: pMid, params: { rx: r, ry: r, rot: 0, large: 1, sweep: 1 }, d: `M${cx-r},${cy} A${r} ${r} 0 1 1 ${cx+r} ${cy}` });
+                outPaths.push({ type: 'arc', p1: pMid, p2: pStart, params: { rx: r, ry: r, rot: 0, large: 1, sweep: 1 }, d: `M${cx+r},${cy} A${r} ${r} 0 1 1 ${cx-r} ${cy}` });
                 return;
             }
 
             if (tag === 'ellipse') {
                 const cx = parseFloat(el.getAttribute('cx')) || 0;
                 const cy = parseFloat(el.getAttribute('cy')) || 0;
-                let rx = parseFloat(el.getAttribute('rx')) || 0;
-                let ry = parseFloat(el.getAttribute('ry')) || 0;
+                const rx = parseFloat(el.getAttribute('rx')) || 0;
+                const ry = parseFloat(el.getAttribute('ry')) || 0;
                 if (rx <= 0 || ry <= 0) return;
-                if (Math.abs(rx - ry) / Math.max(rx, ry) < 0.01) {
-                    const start1 = applyCtm({ x: cx + rx, y: cy });
-                    const end1 = applyCtm({ x: cx - rx, y: cy });
-                    const center = applyCtm({ x: cx, y: cy });
-                    outPaths.push({ type: 'arc', start: start1, end: end1, center, clockwise: false });
-                    outPaths.push({ type: 'arc', start: end1, end: start1, center, clockwise: true });
-                } else {
-                    try {
-                        const len = el.getTotalLength();
-                        if (len <= 0) return;
-                        const points = [];
-                        for (let i = 0; i <= len; i += precision) {
-                            const pt = el.getPointAtLength(Math.min(i, len));
-                            points.push(applyCtm(pt));
-                        }
-                        if (points.length > 1) outPaths.push({ type: 'line', points });
-                    } catch (err) { /* ignore */ }
-                }
+                const d = `M${cx-rx},${cy} A${rx} ${ry} 0 1 1 ${cx+rx} ${cy} A${rx} ${ry} 0 1 1 ${cx-rx} ${cy}`;
+                const pathSegments = explodePathToSegments(d, applyCtm);
+                pathSegments.forEach((seg) => outPaths.push(seg));
                 return;
             }
 
-            // Straight-line elements: use vertices only (no sampling) so lines stay perfectly straight
             if (tag === 'line') {
                 const x1 = parseFloat(el.getAttribute('x1')) || 0, y1 = parseFloat(el.getAttribute('y1')) || 0;
                 const x2 = parseFloat(el.getAttribute('x2')) || 0, y2 = parseFloat(el.getAttribute('y2')) || 0;
-                outPaths.push({ type: 'line', points: [applyCtm({ x: x1, y: y1 }), applyCtm({ x: x2, y: y2 })] });
+                outPaths.push({ type: 'line', p1: applyCtm({ x: x1, y: y1 }), p2: applyCtm({ x: x2, y: y2 }), params: {} });
                 return;
             }
             if (tag === 'rect') {
@@ -675,10 +1050,10 @@ export default function VectorPlotter() {
                 const p1 = applyCtm({ x: x + w, y });
                 const p2 = applyCtm({ x: x + w, y: y + h });
                 const p3 = applyCtm({ x, y: y + h });
-                outPaths.push({ type: 'line', points: [p0, p1] });
-                outPaths.push({ type: 'line', points: [p1, p2] });
-                outPaths.push({ type: 'line', points: [p2, p3] });
-                outPaths.push({ type: 'line', points: [p3, p0] });
+                outPaths.push({ type: 'line', p1: p0, p2: p1, params: {} });
+                outPaths.push({ type: 'line', p1: p1, p2: p2, params: {} });
+                outPaths.push({ type: 'line', p1: p2, p2: p3, params: {} });
+                outPaths.push({ type: 'line', p1: p3, p2: p0, params: {} });
                 return;
             }
             if (tag === 'polyline' || tag === 'polygon') {
@@ -688,9 +1063,9 @@ export default function VectorPlotter() {
                 const verts = [];
                 for (let i = 0; i + 1 < nums.length; i += 2) verts.push(applyCtm({ x: nums[i], y: nums[i + 1] }));
                 for (let i = 0; i < verts.length - 1; i++)
-                    outPaths.push({ type: 'line', points: [verts[i], verts[i + 1]] });
+                    outPaths.push({ type: 'line', p1: verts[i], p2: verts[i + 1], params: {} });
                 if (tag === 'polygon' && verts.length > 2)
-                    outPaths.push({ type: 'line', points: [verts[verts.length - 1], verts[0]] });
+                    outPaths.push({ type: 'line', p1: verts[verts.length - 1], p2: verts[0], params: {} });
                 return;
             }
 
@@ -736,68 +1111,61 @@ export default function VectorPlotter() {
     });
   };
 
-  // --- Logic: G-Code Generation (all items) ---
+  // --- Logic: G-Code Generation (ggcode-style: connectivity-aware, arc fitting) ---
   const generateGCode = async () => {
     if (items.length === 0) return;
     setIsProcessing(true);
     await new Promise(r => setTimeout(r, 100));
 
     try {
-      const gcode = [];
       const first = items[0].settings;
-      gcode.push(`; Generated by VectorPlotter Studio`);
-      gcode.push(`G90`);
-      gcode.push(`G21`);
-      gcode.push(`G0 Z${first.zUp} F${first.travelSpeed}`);
-      gcode.push(`G0 X0 Y0 F${first.travelSpeed}`);
-
+      const flatSegments = [];
       items.forEach((item) => {
         const { paths: itemPaths, settings: s, originalSize: os } = item;
         if (!itemPaths || itemPaths.length === 0) return;
         const scaleX = s.width / os.w;
         const scaleY = s.height / os.h;
-        gcode.push(`; --- ${item.name} ---`);
+        const tx = (p) => ({ x: p.x * scaleX + s.posX, y: p.y * scaleY + s.posY });
         itemPaths.forEach((poly) => {
           const seg = toSegment(poly);
           if (!seg) return;
-          if (seg.type === 'arc') {
-            const startX = roundGcode((seg.start.x * scaleX) + s.posX);
-            const startY = roundGcode((seg.start.y * scaleY) + s.posY);
-            const endX = roundGcode((seg.end.x * scaleX) + s.posX);
-            const endY = roundGcode((seg.end.y * scaleY) + s.posY);
-            const centerX = (seg.center.x * scaleX) + s.posX;
-            const centerY = (seg.center.y * scaleY) + s.posY;
-            const I = roundGcode(centerX - (seg.start.x * scaleX + s.posX));
-            const J = roundGcode(centerY - (seg.start.y * scaleY + s.posY));
-            gcode.push(`G0 X${startX} Y${startY} F${s.travelSpeed}`);
-            gcode.push(`G1 Z${s.zDown} F${s.workSpeed}`);
-            gcode.push((seg.clockwise ? `G2` : `G3`) + ` X${endX} Y${endY} I${I} J${J} F${s.workSpeed}`);
-            gcode.push(`G0 Z${s.zUp} F${s.travelSpeed}`);
-          } else {
-            const pts = seg.points;
-            if (!pts || pts.length < 2) return;
-            const startX = roundGcode((pts[0].x * scaleX) + s.posX);
-            const startY = roundGcode((pts[0].y * scaleY) + s.posY);
-            gcode.push(`G0 X${startX} Y${startY} F${s.travelSpeed}`);
-            gcode.push(`G1 Z${s.zDown} F${s.workSpeed}`);
-            let lastX = startX, lastY = startY;
-            for (let i = 1; i < pts.length; i++) {
-              const x = roundGcode((pts[i].x * scaleX) + s.posX);
-              const y = roundGcode((pts[i].y * scaleY) + s.posY);
-              if (x === lastX && y === lastY) continue; // skip duplicate points
-              lastX = x;
-              lastY = y;
-              gcode.push(`G1 X${x} Y${y} F${s.workSpeed}`);
+          if (seg.p1 && seg.p2 !== undefined) {
+            const p1 = tx(seg.p1);
+            const p2 = tx(seg.p2);
+            const params = seg.params ? { ...seg.params } : {};
+            if (params.rx != null) params.rx = params.rx * scaleX;
+            if (params.ry != null) params.ry = params.ry * scaleY;
+            if (params.x1 != null) { params.x1 = params.x1 * scaleX + s.posX; params.y1 = params.y1 * scaleY + s.posY; }
+            if (params.x2 != null) { params.x2 = params.x2 * scaleX + s.posX; params.y2 = params.y2 * scaleY + s.posY; }
+            flatSegments.push({ type: seg.type, p1, p2, params, d: seg.d });
+          } else if (seg.type === 'arc' && seg.start && seg.center) {
+            const R = distPt(seg.start, seg.center);
+            flatSegments.push({
+              type: 'arc',
+              p1: tx(seg.start),
+              p2: tx(seg.end),
+              params: { rx: R * scaleX, ry: R * scaleY, large: 0, sweep: seg.clockwise ? 0 : 1 },
+              d: null,
+            });
+          } else if (seg.points && seg.points.length >= 2) {
+            for (let i = 0; i < seg.points.length - 1; i++) {
+              flatSegments.push({ type: 'line', p1: tx(seg.points[i]), p2: tx(seg.points[i + 1]), params: {}, d: null });
             }
-            gcode.push(`G0 Z${s.zUp} F${s.travelSpeed}`);
           }
         });
       });
 
-      gcode.push(`G0 X0 Y0 F${first.travelSpeed}`);
-      gcode.push(`M2`);
+      const code = ggcodeGenerateGCode(
+        flatSegments,
+        1,
+        first.workSpeed,
+        first.travelSpeed,
+        first.zUp,
+        first.zDown,
+        false
+      );
 
-      const blob = new Blob([gcode.join("\n")], { type: "text/plain" });
+      const blob = new Blob([code], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
