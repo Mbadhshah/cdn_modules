@@ -1061,6 +1061,7 @@ export default function VectorPlotter() {
             )}
 
             <div className="plotter-hint">
+              Load images (.SVG). Paths are traced as lines (vectors).
             </div>
           </div>
         </div>
