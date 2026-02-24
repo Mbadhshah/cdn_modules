@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './Plotter.css';
+import { useConnection } from '../components/context/ConnectionContext';
+import { uploadGcodeFile } from '../components/api/gcodeUploader';
 
 // --- Configuration ---
 // Bed: origin (0,0) at bottom center; X from -250 (left) to +250 (right); Y from 0 (bottom) to 300 (top)
@@ -874,6 +876,7 @@ function PlotItem({ item, scale, isSelected }) {
 }
 
 export default function VectorPlotter() {
+  const { connectionStatus, espInfo } = useConnection?.() || {};
   // --- State: multiple images ---
   const [items, setItems] = useState([]); // [{ id, name, paths, settings, originalSize }, ...]
   const [activeId, setActiveId] = useState(null);
@@ -882,9 +885,8 @@ export default function VectorPlotter() {
   const [view, setView] = useState({ x: 0, y: 0, scale: 2.0 });
   const [isProcessing, setIsProcessing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [gcodeDialogOpen, setGcodeDialogOpen] = useState(false);
-  const [lastGeneratedGcode, setLastGeneratedGcode] = useState('');
-  const [isSendingToDevice, setIsSendingToDevice] = useState(false);
+  const [lastGeneratedGcode, setLastGeneratedGcode] = useState(null);
+  const [isSending, setIsSending] = useState(false);
 
   // --- Interaction State ---
   const [dragMode, setDragMode] = useState('NONE'); // 'NONE', 'VIEW', 'IMAGE'
@@ -1169,7 +1171,6 @@ export default function VectorPlotter() {
       );
 
       setLastGeneratedGcode(code);
-      setGcodeDialogOpen(true);
     } catch (e) {
       console.error(e);
       alert("Error generating G-code");
@@ -1178,47 +1179,44 @@ export default function VectorPlotter() {
     }
   };
 
-  const handleGcodeDownload = () => {
+  const handleDownloadGcode = () => {
     if (!lastGeneratedGcode) return;
-    const blob = new Blob([lastGeneratedGcode], { type: 'text/plain' });
+    const blob = new Blob([lastGeneratedGcode], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = `plot_${items.length}items.gcode`;
     a.click();
     URL.revokeObjectURL(url);
-    setGcodeDialogOpen(false);
   };
 
-  const handleSaveToDevice = () => {
-    if (!lastGeneratedGcode) return;
-    const espIp = typeof window !== 'undefined' && window.connectedEspIp;
-    if (!espIp || typeof espIp !== 'string' || !espIp.trim()) {
-      alert('No device connected. Connect an ESP via WiFi first (e.g. set window.connectedEspIp).');
+  const handleSendToDevice = async () => {
+    if (!lastGeneratedGcode) {
+      alert("Generate G-code first.");
       return;
     }
-    if (typeof sendToDevice !== 'function') {
-      alert('Send to device not available. Load sendToDevice.js from your CDN.');
+    const baseUrl = espInfo?.baseUrl;
+    if (!baseUrl) {
+      alert("Connect to a device first (use the connection menu to connect to your ESP/plotter).");
       return;
     }
-    setIsSendingToDevice(true);
-    const filename = `plot/plot_${items.length}items.gcode`;
-    sendToDevice(lastGeneratedGcode, filename, espIp.trim())
-      .then((result) => {
-        if (result.ok) {
-          alert('G-code sent to device successfully.');
-          setGcodeDialogOpen(false);
-        } else {
-          alert('Send failed: ' + (result.message || result.status || 'Unknown error'));
-        }
-      })
-      .catch((err) => {
-        alert('Send failed: ' + (err && err.message ? err.message : 'Unknown error'));
-      })
-      .finally(() => {
-        setIsSendingToDevice(false);
-      });
+    if (typeof uploadGcodeFile !== 'function') {
+      alert("Send to device is not available in this environment.");
+      return;
+    }
+    setIsSending(true);
+    try {
+      const file = new File([lastGeneratedGcode], `plot_${items.length}items.gcode`, { type: "text/plain" });
+      await uploadGcodeFile(baseUrl, file);
+      alert("G-code sent to device successfully.");
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || "Failed to send G-code to device.");
+    } finally {
+      setIsSending(false);
+    }
   };
+
 
   // --- Handlers: File & Settings ---
   const handleFile = (e) => {
@@ -1428,6 +1426,17 @@ export default function VectorPlotter() {
               {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
             </button>
 
+            {lastGeneratedGcode && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+                <button type="button" className="plotter-full-width-btn" onClick={handleDownloadGcode} style={{ flex: 1, minWidth: 120 }}>
+                  Download
+                </button>
+                <button type="button" className="plotter-full-width-btn" onClick={handleSendToDevice} disabled={connectionStatus !== 'connected' || isSending} style={{ flex: 1, minWidth: 120, opacity: connectionStatus === 'connected' ? 1 : 0.7 }}>
+                  {isSending ? 'SENDING...' : 'Send to device'}
+                </button>
+              </div>
+            )}
+
             {items.length > 0 && (
               <div style={{ marginTop: 12, marginBottom: 8, maxHeight: 120, overflowY: 'auto' }}>
                 {items.map((it) => (
@@ -1473,24 +1482,6 @@ export default function VectorPlotter() {
           </div>
         </div>
       </div>
-
-      {/* G-Code ready: Download or Save to device */}
-      {gcodeDialogOpen && (
-        <div className="plotter-gcode-dialog-overlay" onClick={() => !isSendingToDevice && setGcodeDialogOpen(false)}>
-          <div className="plotter-gcode-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3 className="plotter-gcode-dialog-title">G-Code ready</h3>
-            <p className="plotter-gcode-dialog-text">Download to your computer or save to the connected device.</p>
-            <div className="plotter-gcode-dialog-buttons">
-              <button type="button" className="plotter-full-width-btn" onClick={handleGcodeDownload} disabled={isSendingToDevice}>
-                Download
-              </button>
-              <button type="button" className="plotter-full-width-btn" onClick={handleSaveToDevice} disabled={isSendingToDevice} style={{ marginTop: 10 }}>
-                {isSendingToDevice ? 'Sending…' : 'Save to device'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
