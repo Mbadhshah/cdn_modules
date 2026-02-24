@@ -28,6 +28,7 @@ function PickAndPlacePage() {
     const [isDraggingExtension, setIsDraggingExtension] = useState(false);
     const [extensionDragOffset, setExtensionDragOffset] = useState({ x: 0, y: 0 });
     const [showDownloadOptions, setShowDownloadOptions] = useState(false);
+    const [isSendingToDevice, setIsSendingToDevice] = useState(false);
     const [positionFetched, setPositionFetched] = useState(false);
     const [isSimulating, setIsSimulating] = useState(false);
 
@@ -318,8 +319,6 @@ function PickAndPlacePage() {
     };
 
     const handleSendToDevice = async () => {
-        setShowDownloadOptions(false);
-
         if (connectionStatus !== 'connected') {
             alert("Not connected to ESP. Please connect first.");
             return;
@@ -330,22 +329,37 @@ function PickAndPlacePage() {
             return;
         }
 
+        if (typeof uploadGcodeFile !== 'function') {
+            alert("Send to device is not available in this environment.");
+            return;
+        }
+
         const gcodeContent = generateGcode();
         if (!gcodeContent || workspaceBlocks.length === 0) {
             alert("No G-code to send. Please add blocks to the workspace.");
             return;
         }
 
-        // Create a File object from the G-code string
-        const blob = new Blob([gcodeContent], { type: 'text/plain' });
-        const gcodeFile = new File([blob], `pickandplace_${Date.now()}.gcode`, { type: 'text/plain' });
+        const defaultName = `pickandplace_${workspaceBlocks.length}blocks`;
+        const rawName = window.prompt('Enter file name (.gcode will be added automatically):', defaultName);
+        if (rawName == null || String(rawName).trim() === '') return;
 
+        let fileName = String(rawName).trim();
+        if (!fileName.toLowerCase().endsWith('.gcode')) fileName += '.gcode';
+
+        const blob = new Blob([gcodeContent], { type: 'text/plain' });
+        const gcodeFile = new File([blob], fileName, { type: 'text/plain' });
+
+        setIsSendingToDevice(true);
         try {
             await uploadGcodeFile(espInfo.baseUrl, gcodeFile, 'pick&place');
-            alert("G-Code sent to device successfully!");
+            alert(`G-Code sent to device successfully.\nSaved as: pick&place/${fileName}`);
+            setShowDownloadOptions(false);
         } catch (error) {
             console.error("Failed to send G-Code to device:", error);
             alert(`Failed to send G-Code to device: ${error.message || error}`);
+        } finally {
+            setIsSendingToDevice(false);
         }
     };
 
@@ -1078,31 +1092,34 @@ function PickAndPlacePage() {
                     </div>
                 )}
 
-                {/* Download Options Modal */}
+                {/* G-Code options: Save to PC or Send to Device */}
                 {showDownloadOptions && (
-                    <div id="modal-overlay" onClick={() => setShowDownloadOptions(false)}>
+                    <div id="modal-overlay" onClick={() => !isSendingToDevice && setShowDownloadOptions(false)}>
                         <div className="download-options-modal" onClick={(e) => e.stopPropagation()}>
-                            <h3 className="download-options-header">Download G-Code</h3>
+                            <h3 className="download-options-header">G-Code: Save or Send to Device</h3>
                             <div className="download-options-content">
                                 <p>Choose how you want to proceed:</p>
                                 <div className="download-options-buttons">
                                     <button
                                         className="download-option-btn save-pc-btn"
                                         onClick={handleSaveToPC}
+                                        disabled={isSendingToDevice}
                                     >
                                         Save to PC
                                     </button>
                                     <button
                                         className="download-option-btn send-device-btn"
                                         onClick={handleSendToDevice}
+                                        disabled={isSendingToDevice}
                                     >
-                                        Send to Device
+                                        {isSendingToDevice ? 'Sending…' : 'Send to Device'}
                                     </button>
                                 </div>
                             </div>
                             <button
                                 className="download-options-close"
                                 onClick={() => setShowDownloadOptions(false)}
+                                disabled={isSendingToDevice}
                             >
                                 ×
                             </button>
