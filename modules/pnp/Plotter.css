@@ -168,3 +168,44 @@
   margin-top: 16px;
   text-align: center;
 }
+
+/* G-Code dialog: Download / Save to device */
+.plotter-gcode-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+.plotter-gcode-dialog {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 24px;
+  min-width: 320px;
+  max-width: 400px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.plotter-gcode-dialog-title {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: center;
+}
+.plotter-gcode-dialog-text {
+  margin: 0 0 20px 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+.plotter-gcode-dialog-buttons {
+  display: flex;
+  flex-direction: column;
+}
