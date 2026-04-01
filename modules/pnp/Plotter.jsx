@@ -6,7 +6,6 @@ import {
   Move, 
   PenTool, 
   RefreshCw,
-  Maximize
 } from 'lucide-react';
 
 // --- Configuration ---
@@ -386,35 +385,26 @@ export default function VectorPlotter() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#1e1e1e] text-gray-200 font-sans overflow-hidden">
+    <div className="flex flex-col h-screen font-sans overflow-hidden text-gray-800">
       {/* Hidden Div for Parsing */}
       <div ref={hiddenSvgRef} style={{position:'absolute', width:0, height:0, visibility:'hidden', pointerEvents:'none'}}></div>
-
-      {/* Header */}
-      <header className="h-12 bg-[#2d2d30] border-b border-gray-700 flex items-center px-4 justify-between shadow-md z-20">
-        <div className="font-bold text-lg tracking-wider text-white">adtri <span className="text-xs font-normal text-gray-400">VECTOR STUDIO</span></div>
-        <div className="flex items-center gap-2 text-xs text-blue-400 font-bold tracking-wider">
-             <PenTool size={14} />
-             <span>SVG PLOTTER</span>
-        </div>
-      </header>
 
       <div className="flex flex-1 overflow-hidden relative">
         
         {/* Left Toolbar */}
-        <div className="w-16 bg-white/5 backdrop-blur-md border-r border-white/10 flex flex-col items-center py-4 gap-4 z-10 m-4 rounded-xl shadow-2xl">
-          <label className="p-3 rounded-xl bg-white/10 hover:bg-blue-600 hover:text-white transition-all cursor-pointer group tooltip-container">
+        <div className="w-16 border border-gray-200 flex flex-col items-center py-4 gap-4 z-10 m-4 rounded-xl">
+          <label className="p-3 rounded-xl border border-gray-200 hover:bg-gray-100 hover:border-gray-300 transition-all cursor-pointer group tooltip-container">
             <Upload size={20} />
             <input ref={fileInputRef} type="file" accept=".svg" className="hidden" onChange={handleFile} />
           </label>
-          <button onClick={() => { setSettings(DEFAULT_SETTINGS); setPaths([]); setSvgContent(null); setView({x:0, y:0, scale:2}); }} className="p-3 rounded-xl bg-white/10 hover:bg-red-500 hover:text-white transition-all">
+          <button onClick={() => { setSettings(DEFAULT_SETTINGS); setPaths([]); setSvgContent(null); setView({x:0, y:0, scale:2}); }} className="p-3 rounded-xl border border-gray-200 hover:bg-red-50 hover:border-red-200 transition-all">
              <RefreshCw size={20} />
           </button>
         </div>
 
         {/* Center Workspace */}
         <div 
-            className="flex-1 relative overflow-hidden bg-[#121212] cursor-grab active:cursor-grabbing flex justify-center items-center"
+            className="flex-1 relative overflow-hidden cursor-grab active:cursor-grabbing flex justify-center items-center"
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
@@ -486,22 +476,22 @@ export default function VectorPlotter() {
         </div>
 
         {/* Right Settings Panel */}
-        <div className="w-[300px] bg-[#252526] border-l border-black overflow-y-auto z-15 shadow-2xl text-sm">
+        <div className="w-[300px] border-l border-gray-200 overflow-y-auto z-15 text-sm">
             <div className="p-4 space-y-6">
                 
                 {/* Generate Button */}
                 <button 
                     disabled={paths.length === 0 || isProcessing}
                     onClick={generateGCode}
-                    className={`w-full py-3 rounded font-bold flex items-center justify-center gap-2 transition-all ${paths.length === 0 ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50'}`}
+                    className={`w-full py-3 rounded font-bold flex items-center justify-center gap-2 transition-all ${paths.length === 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
                 >
                     {isProcessing ? <RefreshCw className="animate-spin" /> : <Download size={18} />}
                     {isProcessing ? 'PROCESSING...' : 'GENERATE G-CODE'}
                 </button>
 
                 {/* Dimensions Group */}
-                <div className="border-b border-gray-700 pb-4">
-                    <div className="flex items-center gap-2 mb-3 text-blue-400 font-semibold uppercase text-xs tracking-wider">
+                <div className="border-b border-gray-200 pb-4">
+                    <div className="flex items-center gap-2 mb-3 text-blue-600 font-semibold uppercase text-xs tracking-wider">
                         <Settings size={14} />
                         Dimensions (mm)
                     </div>
@@ -511,7 +501,7 @@ export default function VectorPlotter() {
                         
                         <div className="flex items-center justify-between cursor-pointer pt-2" onClick={() => updateSetting('keepProportions', !settings.keepProportions)}>
                             <label className="text-gray-400 cursor-pointer">Keep Proportions</label>
-                            <div className={`w-8 h-4 rounded-full relative transition-colors ${settings.keepProportions ? 'bg-blue-600' : 'bg-gray-600'}`}>
+                            <div className={`w-8 h-4 rounded-full relative transition-colors ${settings.keepProportions ? 'bg-blue-600' : 'bg-gray-300'}`}>
                                 <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${settings.keepProportions ? 'left-4.5' : 'left-0.5'}`} style={{left: settings.keepProportions ? '18px' : '2px'}}></div>
                             </div>
                         </div>
@@ -519,8 +509,8 @@ export default function VectorPlotter() {
                 </div>
 
                 {/* Position Group */}
-                <div className="border-b border-gray-700 pb-4">
-                    <div className="flex items-center gap-2 mb-3 text-blue-400 font-semibold uppercase text-xs tracking-wider">
+                <div className="border-b border-gray-200 pb-4">
+                    <div className="flex items-center gap-2 mb-3 text-blue-600 font-semibold uppercase text-xs tracking-wider">
                         <Move size={14} />
                         Position (mm)
                     </div>
@@ -531,8 +521,8 @@ export default function VectorPlotter() {
                 </div>
 
                 {/* Plotter Config Group */}
-                <div className="border-b border-gray-700 pb-4">
-                    <div className="flex items-center gap-2 mb-3 text-blue-400 font-semibold uppercase text-xs tracking-wider">
+                <div className="border-b border-gray-200 pb-4">
+                    <div className="flex items-center gap-2 mb-3 text-blue-600 font-semibold uppercase text-xs tracking-wider">
                         <PenTool size={14} />
                         Plotter Setup
                     </div>
@@ -546,7 +536,7 @@ export default function VectorPlotter() {
                     </div>
                 </div>
 
-                <div className="text-[10px] text-gray-500 text-center">
+                <div className="text-[10px] text-gray-400 text-center">
                     Import .SVG files only.<br/>
                     Paths are traced as lines (Vectors).<br/>
                     No raster dots.
@@ -567,7 +557,7 @@ function Control({ label, value, onChange }) {
             <label className="text-gray-400">{label}</label>
             <input 
                 type="number" 
-                className="w-20 bg-[#1e1e1e] border border-gray-600 rounded px-2 py-1 text-right focus:border-blue-500 outline-none transition-colors"
+                className="w-20 border border-gray-300 rounded px-2 py-1 text-right focus:border-blue-500 outline-none transition-colors"
                 value={value}
                 onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
             />
