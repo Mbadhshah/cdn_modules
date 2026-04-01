@@ -448,11 +448,11 @@ function ggcodeGenerateGCode(segments, scale, workFeed, travelFeed, safeZ, cutZ,
       }
       code.push(`G0 X${fmt(startX)} Y${fmt(startY)} F${travelFeed}`);
       if (isLaser) code.push('M3 S1000');
-      else code.push(`G1 Z${cutZ} F${workFeed}`);
+      else code.push(`G0 Z${cutZ} F${travelFeed}`);
       isCutting = true;
     } else if (!isCutting) {
       if (isLaser) code.push('M3 S1000');
-      else code.push(`G1 Z${cutZ} F${workFeed}`);
+      else code.push(`G0 Z${cutZ} F${travelFeed}`);
       isCutting = true;
     }
 
