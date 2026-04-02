@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import './PNP.css';
 import { v4 as uuidv4 } from 'uuid';
-import { useConnection } from '../context/ConnectionContext';
-import { uploadGcodeFile } from '../api/gcodeUploader';
+import { useConnection } from '../../frontend/src/components/context/ConnectionContext';
+import { uploadGcodeFile } from '../../frontend/src/components/api/gcodeUploader';
 
 const PALETTE_BLOCKS = [
     { type: 'motion', label: 'Move to PointS', icon: '✥' },
@@ -189,7 +189,7 @@ function PickAndPlacePage() {
         workspaceBlocks.forEach((blk) => {
             const { type, vals: d } = blk;
             if (type === 'motion') gcode += `G0 X${d.x.toFixed(1)} Y${d.y.toFixed(1)} Z${d.z.toFixed(1)}\n`;
-            if (type === 'vacuum') gcode += d.on ? `M05\n` : `M03\n`;
+            if (type === 'vacuum') gcode += d.on ? `M03\n` : `M05\n`;
             if (type === 'orient') {
                 gcode += `G0 A${d.a || 0} B${d.b || 0} C${d.c || 0}\n`;
             }
@@ -736,7 +736,7 @@ function PickAndPlacePage() {
                             const newOnState = !tempState.on;
                             setTempState(s => ({ ...s, on: newOnState }));
                             if (connectionStatus === 'connected') {
-                                sendGcode(newOnState ? 'M05' : 'M03');
+                                sendGcode(newOnState ? 'M03' : 'M05');
                             }
                         }}>⏻</button>
                     </div>
