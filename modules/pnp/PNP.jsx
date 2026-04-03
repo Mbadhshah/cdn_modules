@@ -9,11 +9,33 @@ const PALETTE_BLOCKS = [
     { type: 'vacuum', label: 'Pick & Place ', icon: '◎' },
 ];
 
-/** Machine bed for motion picker (mm): X −250…250 (L→R), Y 0 at top → 300 at bottom */
-const MOTION_BED_X_MIN = -250;
-const MOTION_BED_X_MAX = 250;
+/** Semicircle bed (mm): X −390…390, Y 0 (top/apex) → 390 (bottom diameter). Center (0,390), R=390. */
+const MOTION_BED_X_MIN = -390;
+const MOTION_BED_X_MAX = 390;
 const MOTION_BED_Y_MIN = 0;
-const MOTION_BED_Y_MAX = 300;
+const MOTION_BED_Y_MAX = 390;
+const MOTION_BED_RADIUS_MM = 390;
+const MOTION_BED_CIRCLE_CX = 0;
+const MOTION_BED_CIRCLE_CY = 390;
+
+function clampToSemicircleMm(x, y) {
+    const cx = MOTION_BED_CIRCLE_CX;
+    const cy = MOTION_BED_CIRCLE_CY;
+    const R = MOTION_BED_RADIUS_MM;
+    let px = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, x));
+    let py = Math.max(MOTION_BED_Y_MIN, Math.min(MOTION_BED_Y_MAX, y));
+    const dx = px - cx;
+    const dy = py - cy;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > R * R - 1e-4) {
+        const len = Math.sqrt(d2);
+        px = cx + (dx / len) * R;
+        py = cy + (dy / len) * R;
+    }
+    px = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, px));
+    py = Math.max(MOTION_BED_Y_MIN, Math.min(MOTION_BED_Y_MAX, py));
+    return { x: Math.round(px * 10) / 10, y: Math.round(py * 10) / 10 };
+}
 
 /** Advance streamed G-code queue only on firmware `ok` (Grbl-style: exact or line starting with `ok`). */
 function isFirmwareOkMessage(raw) {
@@ -523,7 +545,7 @@ function PickAndPlacePage() {
     }, []);
 
 
-    /** Map screen to machine mm. X: left −250, right +250. Y: top = 0, bottom = 300 (origin top, X=0 at center line). */
+    /** Map screen → machine mm inside semicircle (flat edge at bottom, apex at top center). */
     const clientToBedMm = useCallback((clientX, clientY) => {
         const el = motionBedRef.current;
         if (!el) return null;
@@ -534,9 +556,7 @@ function PickAndPlacePage() {
         const tx = (clientX - rect.left) / rect.width;
         let x = MOTION_BED_X_MIN + tx * xSpan;
         let y = MOTION_BED_Y_MIN + ((clientY - rect.top) / rect.height) * ySpan;
-        x = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, x));
-        y = Math.max(MOTION_BED_Y_MIN, Math.min(MOTION_BED_Y_MAX, y));
-        return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+        return clampToSemicircleMm(x, y);
     }, []);
 
     const handleBedTap = useCallback((e) => {
@@ -633,19 +653,22 @@ function PickAndPlacePage() {
         const currentPos = tempState[axis] || 0;
         const newPos = parseFloat((currentPos + increment).toFixed(1));
 
-        let clampedPos = newPos;
-        if (axis === 'x') {
-            clampedPos = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, newPos));
-        } else if (axis === 'y') {
-            clampedPos = Math.max(MOTION_BED_Y_MIN, Math.min(MOTION_BED_Y_MAX, newPos));
-        } else if (axis === 'z') {
-            clampedPos = Math.max(0, Math.min(200, newPos));
+        const zVal = tempState.z || 0;
+        if (axis === 'z') {
+            const clampedZ = Math.max(0, Math.min(200, newPos));
+            sendGcode(`G0 Z${clampedZ.toFixed(1)}`);
+            return;
         }
 
-        // Send absolute move command
-        const axisUpper = axis.toUpperCase();
-        const gcode = `G0 ${axisUpper}${clampedPos.toFixed(1)}`;
-        sendGcode(gcode);
+        let nx = tempState.x || 0;
+        let ny = tempState.y || 0;
+        if (axis === 'x') {
+            nx = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, newPos));
+        } else if (axis === 'y') {
+            ny = Math.max(MOTION_BED_Y_MIN, Math.min(MOTION_BED_Y_MAX, newPos));
+        }
+        const p = clampToSemicircleMm(nx, ny);
+        sendGcode(`G0 X${p.x.toFixed(1)} Y${p.y.toFixed(1)} Z${zVal.toFixed(1)}`);
     };
 
     const renderModalContent = () => {
