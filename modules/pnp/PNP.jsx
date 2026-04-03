@@ -46,7 +46,6 @@ function PickAndPlacePage() {
     const isSimulatingRef = useRef(false);
 
     const motionBedRef = useRef(null);
-    const isBedDraggingRef = useRef(false);
     const popupRef = useRef(null);
     const popupHeaderRef = useRef(null);
 
@@ -495,42 +494,24 @@ function PickAndPlacePage() {
     }, []);
 
 
+    /** Map screen position to machine mm. X is mirrored (screen left ↔ +X). Y: bottom = 0, top = 300. */
     const clientToBedMm = useCallback((clientX, clientY) => {
         const el = motionBedRef.current;
         if (!el) return null;
         const rect = el.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return null;
-        let x = MOTION_BED_X_MIN + ((clientX - rect.left) / rect.width) * (MOTION_BED_X_MAX - MOTION_BED_X_MIN);
-        let y = MOTION_BED_Y_MIN + ((rect.bottom - clientY) / rect.height) * (MOTION_BED_Y_MAX - MOTION_BED_Y_MIN);
+        const xSpan = MOTION_BED_X_MAX - MOTION_BED_X_MIN;
+        const ySpan = MOTION_BED_Y_MAX - MOTION_BED_Y_MIN;
+        const u = (rect.right - clientX) / rect.width;
+        let x = MOTION_BED_X_MIN + u * xSpan;
+        let y = MOTION_BED_Y_MIN + ((rect.bottom - clientY) / rect.height) * ySpan;
         x = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, x));
         y = Math.max(MOTION_BED_Y_MIN, Math.min(MOTION_BED_Y_MAX, y));
         return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
     }, []);
 
-    const handleBedPointerDown = useCallback((e) => {
+    const handleBedTap = useCallback((e) => {
         if (e.button != null && e.button !== 0) return;
-        isBedDraggingRef.current = true;
-        try {
-            e.currentTarget.setPointerCapture(e.pointerId);
-        } catch (_) { /* ignore */ }
-        const pt = clientToBedMm(e.clientX, e.clientY);
-        if (pt) setTempState((s) => ({ ...s, x: pt.x, y: pt.y }));
-    }, [clientToBedMm]);
-
-    const handleBedPointerMove = useCallback((e) => {
-        if (!isBedDraggingRef.current) return;
-        const pt = clientToBedMm(e.clientX, e.clientY);
-        if (pt) setTempState((s) => ({ ...s, x: pt.x, y: pt.y }));
-    }, [clientToBedMm]);
-
-    const handleBedPointerUp = useCallback((e) => {
-        if (!isBedDraggingRef.current) return;
-        isBedDraggingRef.current = false;
-        try {
-            if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
-                e.currentTarget.releasePointerCapture(e.pointerId);
-            }
-        } catch (_) { /* ignore */ }
         const pt = clientToBedMm(e.clientX, e.clientY);
         if (!pt) return;
         setTempState((s) => {
@@ -542,15 +523,6 @@ function PickAndPlacePage() {
             return { ...s, x: pt.x, y: pt.y };
         });
     }, [connectionStatus, sendWebSocketMessage, clientToBedMm]);
-
-    const handleBedPointerCancel = useCallback((e) => {
-        isBedDraggingRef.current = false;
-        try {
-            if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
-                e.currentTarget.releasePointerCapture(e.pointerId);
-            }
-        } catch (_) { /* ignore */ }
-    }, []);
 
     useEffect(() => {
         if (activeBlock?.type === 'motion') {
@@ -654,27 +626,19 @@ function PickAndPlacePage() {
                                         <div
                                             ref={motionBedRef}
                                             className="motion-bed"
-                                            onPointerDown={handleBedPointerDown}
-                                            onPointerMove={handleBedPointerMove}
-                                            onPointerUp={handleBedPointerUp}
-                                            onPointerCancel={handleBedPointerCancel}
+                                            onClick={handleBedTap}
                                         >
                                             <div className="motion-bed-grid" aria-hidden />
                                             <div className="motion-bed-axis motion-bed-axis-x" aria-hidden />
                                             <div className="motion-bed-axis motion-bed-axis-y" aria-hidden />
-                                            <span className="motion-bed-corner motion-bed-corner-tl">−250, 300</span>
-                                            <span className="motion-bed-corner motion-bed-corner-tr">250, 300</span>
-                                            <span className="motion-bed-corner motion-bed-corner-bl">−250, 0</span>
-                                            <span className="motion-bed-corner motion-bed-corner-br">250, 0</span>
                                             <div
                                                 className="motion-bed-marker"
                                                 style={{
-                                                    left: `${(((tempState.x ?? 0) - MOTION_BED_X_MIN) / (MOTION_BED_X_MAX - MOTION_BED_X_MIN)) * 100}%`,
+                                                    left: `${((MOTION_BED_X_MAX - (tempState.x ?? 0)) / (MOTION_BED_X_MAX - MOTION_BED_X_MIN)) * 100}%`,
                                                     bottom: `${(((tempState.y ?? 0) - MOTION_BED_Y_MIN) / (MOTION_BED_Y_MAX - MOTION_BED_Y_MIN)) * 100}%`,
                                                 }}
                                             />
                                         </div>
-                                        <div className="motion-bed-hint">Tap or drag — Y = 0 at front, X = 0 center</div>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         <button type="button" className="btn-dpad" style={{ width: '60px' }} onMouseDown={() => jog('z', -1)}>Z▲</button>
