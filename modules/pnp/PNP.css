@@ -829,26 +829,26 @@
   .joystick-base { width: 180px; height: 180px; background: rgba(0,0,0,0.3); border-radius: 50%; position: relative; border: 2px solid var(--glass-border); }
   .joystick-stick { width: 70px; height: 70px; background: linear-gradient(135deg, #555, #222); border-radius: 50%; position: absolute; top:55px; left:55px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); cursor: grab; }
 
-  /* Motion modal: semicircle bed X −390…390 mm, Y 0…390 mm (flat edge bottom) */
+  /* Motion modal: semicircle bed X −390…390 mm, Y 0…390 (flat top, curved bottom) */
   .motion-bed-wrap {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    flex: 1 1 240px;
-    min-width: 220px;
+    flex: 1 1 320px;
+    min-width: 260px;
     width: 100%;
-    max-width: 400px;
+    max-width: 560px;
     align-self: stretch;
   }
   .motion-bed {
     position: relative;
     width: 100%;
-    min-width: 200px;
-    min-height: 100px;
+    min-width: 240px;
+    min-height: 160px;
     aspect-ratio: 2 / 1;
     background: rgba(30, 35, 45, 0.85);
     border: 2px solid var(--glass-border);
-    border-radius: 9999px 9999px 0 0;
+    border-radius: 0 0 9999px 9999px;
     cursor: crosshair;
     touch-action: none;
     overflow: hidden;
