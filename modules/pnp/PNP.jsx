@@ -15,18 +15,28 @@ const MOTION_BED_X_MAX = 250;
 const MOTION_BED_Y_MIN = 0;
 const MOTION_BED_Y_MAX = 300;
 
-/**
- * One line of streamed G-code is done: Grbl "ok", G0 completion text, or e.g. "M03 oky" / "M05 oky".
- */
-function isStreamedGcodeDoneMessage(raw) {
-    if (raw == null) return false;
-    const t = String(raw).trim().toLowerCase();
+/** Single line from device means the current streamed command finished. */
+function isOneLineStreamDone(line) {
+    const t = String(line).trim().toLowerCase();
+    if (!t) return false;
     if (t === 'ok' || t.startsWith('ok')) return true;
     if (t.includes('now g0 executed')) return true;
     if (t.includes('g0 executed') && (t.includes('rapid positioning') || t.includes('completed'))) return true;
-    if (/m0?3\s+oky/.test(t)) return true;
-    if (/m0?5\s+oky/.test(t)) return true;
+    // M03/M05: "M03 oky", "m03 ok", prefixes like "echo: M03 oky"
+    const m3 = t.includes('m03') || /\bm3\b/.test(t);
+    const m5 = t.includes('m05') || /\bm5\b/.test(t);
+    if (m3 && (t.includes('oky') || /\bm0?3\s+ok\b/.test(t))) return true;
+    if (m5 && (t.includes('oky') || /\bm0?5\s+ok\b/.test(t))) return true;
     return false;
+}
+
+/** WebSocket payload may contain multiple lines; any matching line counts as one completion signal for the waiter. */
+function isStreamedGcodeDoneMessage(raw) {
+    if (raw == null) return false;
+    const text = String(raw);
+    const lines = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    const chunks = lines.length > 0 ? lines : [text.trim()];
+    return chunks.some(isOneLineStreamDone);
 }
 
 function PickAndPlacePage() {
@@ -106,12 +116,17 @@ function PickAndPlacePage() {
     };
 
     const handleDragStart = (e, block) => {
+        if (isSimulating) {
+            e.preventDefault();
+            return;
+        }
         e.dataTransfer.setData('text/plain', JSON.stringify(block));
         e.dataTransfer.effectAllowed = 'copy';
     };
 
     const handleDrop = (e) => {
         e.preventDefault();
+        if (isSimulating) return;
         const droppedBlock = JSON.parse(e.dataTransfer.getData('text/plain'));
 
         const newBlock = {
@@ -255,8 +270,22 @@ function PickAndPlacePage() {
         }, 50);
     }, [sendNextGcodeLine]);
 
-    // Simulate function - sends G-code line by line waiting for ok
+    const stopSimulation = useCallback(() => {
+        isSimulatingRef.current = false;
+        waitingForOkRef.current = false;
+        gcodeQueueRef.current = [];
+        currentGcodeIndexRef.current = 0;
+        setIsSimulating(false);
+        setHighlightedBlockId(null);
+    }, []);
+
+    // Simulate: stream G-code; click again while running to stop
     const handleSimulate = () => {
+        if (isSimulating) {
+            stopSimulation();
+            return;
+        }
+
         if (workspaceBlocks.length === 0) {
             alert("Workspace empty! Please add blocks before simulating.");
             return;
@@ -264,11 +293,6 @@ function PickAndPlacePage() {
 
         if (connectionStatus !== 'connected') {
             alert("Not connected to ESP. Please connect first.");
-            return;
-        }
-
-        if (isSimulating) {
-            alert("Simulation already in progress!");
             return;
         }
 
@@ -730,16 +754,33 @@ function PickAndPlacePage() {
             case 'vacuum':
                 return (
                     <div id="ui-vacuum" className="view-section active">
-                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'white', marginBottom: '10px' }}>
-                            {tempState.on ? 'ON' : 'OFF'}
+                        <p className="vacuum-toggle-hint">Pick &amp; place</p>
+                        <div className="vacuum-toggle-row">
+                            <button
+                                type="button"
+                                className={`vacuum-toggle-btn ${tempState.on ? 'active' : ''}`}
+                                title="Vacuum ON — M03 (pick)"
+                                onClick={() => {
+                                    if (tempState.on) return;
+                                    setTempState((s) => ({ ...s, on: true }));
+                                    if (connectionStatus === 'connected') sendGcode('M03');
+                                }}
+                            >
+                                ON
+                            </button>
+                            <button
+                                type="button"
+                                className={`vacuum-toggle-btn ${!tempState.on ? 'active' : ''}`}
+                                title="Vacuum OFF — M05 (place)"
+                                onClick={() => {
+                                    if (!tempState.on) return;
+                                    setTempState((s) => ({ ...s, on: false }));
+                                    if (connectionStatus === 'connected') sendGcode('M05');
+                                }}
+                            >
+                                OFF
+                            </button>
                         </div>
-                        <button className={`power-btn ${tempState.on ? 'on' : ''}`} onClick={() => {
-                            const newOnState = !tempState.on;
-                            setTempState(s => ({ ...s, on: newOnState }));
-                            if (connectionStatus === 'connected') {
-                                sendGcode(newOnState ? 'M03' : 'M05');
-                            }
-                        }}>⏻</button>
                     </div>
                 );
             default: return null;
@@ -757,13 +798,25 @@ function PickAndPlacePage() {
                     <div id="palette">
                         <div className="palette-header">Logic Blocks</div>
                         {PALETTE_BLOCKS.map(block => (
-                            <div key={block.type} className={`block block-${block.type}`} draggable="true" onDragStart={(e) => handleDragStart(e, block)}>
+                            <div
+                                key={block.type}
+                                className={`block block-${block.type}${isSimulating ? ' block-drag-disabled' : ''}`}
+                                draggable={!isSimulating}
+                                onDragStart={(e) => handleDragStart(e, block)}
+                            >
                                 <span>{block.label}</span>
                                 <span style={{ fontSize: '20px' }}>{block.icon}</span>
                             </div>
                         ))}
                     </div>
-                    <div id="workspace" onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}>
+                    <div
+                        id="workspace"
+                        className={isSimulating ? 'workspace-simulating' : ''}
+                        onDragOver={(e) => {
+                            if (!isSimulating) e.preventDefault();
+                        }}
+                        onDrop={handleDrop}
+                    >
                         <div className="workspace-header">
                             <h3>Workspace</h3>
                             <div className="workspace-header-buttons">
@@ -807,7 +860,11 @@ function PickAndPlacePage() {
                                                 <span className="block-number">{index + 1}</span>
                                                 <span>{PALETTE_BLOCKS.find(b => b.type === block.type).label}</span>
                                                 <div className="block-params">{getBlockLabel(block)}</div>
-                                                <span className="delete-btn" onClick={(e) => handleDeleteBlock(e, block.id)}>×</span>
+                                                <span
+                                                    className="delete-btn"
+                                                    onClick={(e) => { if (!isSimulating) handleDeleteBlock(e, block.id); }}
+                                                    style={isSimulating ? { opacity: 0.35, pointerEvents: 'none' } : undefined}
+                                                >×</span>
                                             </div>
                                         );
                                     })
@@ -897,12 +954,14 @@ function PickAndPlacePage() {
                                                 disabled={isSimulating}
                                             />
                                             <button
-                                                className="simulate-btn"
+                                                type="button"
+                                                className={`simulate-btn${isSimulating ? ' simulate-btn-stop' : ''}`}
                                                 style={{ marginTop: 0, flex: 1 }}
                                                 onClick={handleSimulate}
-                                                disabled={workspaceBlocks.length === 0 || isSimulating || connectionStatus !== 'connected'}
+                                                disabled={workspaceBlocks.length === 0 || connectionStatus !== 'connected'}
+                                                title={isSimulating ? 'Stop simulation' : 'Run program on device'}
                                             >
-                                                {isSimulating ? 'Running...' : 'Simulate'}
+                                                {isSimulating ? 'Stop' : 'Simulate'}
                                             </button>
                                         </div>
                                     </div>
