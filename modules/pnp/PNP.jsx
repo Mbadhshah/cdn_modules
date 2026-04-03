@@ -9,7 +9,7 @@ const PALETTE_BLOCKS = [
     { type: 'vacuum', label: 'Pick & Place ', icon: '◎' },
 ];
 
-/** Machine bed for motion picker (mm): X −250…250, Y 0…300 */
+/** Machine bed for motion picker (mm): X −250…250 (L→R), Y 0 at top → 300 at bottom */
 const MOTION_BED_X_MIN = -250;
 const MOTION_BED_X_MAX = 250;
 const MOTION_BED_Y_MIN = 0;
@@ -494,7 +494,7 @@ function PickAndPlacePage() {
     }, []);
 
 
-    /** Map screen position to machine mm. X is mirrored (screen left ↔ +X). Y: bottom = 0, top = 300. */
+    /** Map screen to machine mm. X: left −250, right +250. Y: top = 0, bottom = 300 (origin top, X=0 at center line). */
     const clientToBedMm = useCallback((clientX, clientY) => {
         const el = motionBedRef.current;
         if (!el) return null;
@@ -502,9 +502,9 @@ function PickAndPlacePage() {
         if (rect.width <= 0 || rect.height <= 0) return null;
         const xSpan = MOTION_BED_X_MAX - MOTION_BED_X_MIN;
         const ySpan = MOTION_BED_Y_MAX - MOTION_BED_Y_MIN;
-        const u = (rect.right - clientX) / rect.width;
-        let x = MOTION_BED_X_MIN + u * xSpan;
-        let y = MOTION_BED_Y_MIN + ((rect.bottom - clientY) / rect.height) * ySpan;
+        const tx = (clientX - rect.left) / rect.width;
+        let x = MOTION_BED_X_MIN + tx * xSpan;
+        let y = MOTION_BED_Y_MIN + ((clientY - rect.top) / rect.height) * ySpan;
         x = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, x));
         y = Math.max(MOTION_BED_Y_MIN, Math.min(MOTION_BED_Y_MAX, y));
         return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
@@ -634,8 +634,8 @@ function PickAndPlacePage() {
                                             <div
                                                 className="motion-bed-marker"
                                                 style={{
-                                                    left: `${((MOTION_BED_X_MAX - (tempState.x ?? 0)) / (MOTION_BED_X_MAX - MOTION_BED_X_MIN)) * 100}%`,
-                                                    bottom: `${(((tempState.y ?? 0) - MOTION_BED_Y_MIN) / (MOTION_BED_Y_MAX - MOTION_BED_Y_MIN)) * 100}%`,
+                                                    left: `${(((tempState.x ?? 0) - MOTION_BED_X_MIN) / (MOTION_BED_X_MAX - MOTION_BED_X_MIN)) * 100}%`,
+                                                    top: `${(((tempState.y ?? 0) - MOTION_BED_Y_MIN) / (MOTION_BED_Y_MAX - MOTION_BED_Y_MIN)) * 100}%`,
                                                 }}
                                             />
                                         </div>
