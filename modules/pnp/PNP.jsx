@@ -9,14 +9,14 @@ const PALETTE_BLOCKS = [
     { type: 'vacuum', label: 'Pick & Place ', icon: '◎' },
 ];
 
-/** Semicircle bed (mm): X −390…390, Y 0 (top/apex) → 390 (bottom diameter). Center (0,390), R=390. */
+/** Semicircle bed (mm): X −390…390, Y 0 flat top → 390 apex bottom. Upper half of disk center (0,0), R=390. */
 const MOTION_BED_X_MIN = -390;
 const MOTION_BED_X_MAX = 390;
 const MOTION_BED_Y_MIN = 0;
 const MOTION_BED_Y_MAX = 390;
 const MOTION_BED_RADIUS_MM = 390;
 const MOTION_BED_CIRCLE_CX = 0;
-const MOTION_BED_CIRCLE_CY = 390;
+const MOTION_BED_CIRCLE_CY = 0;
 
 function clampToSemicircleMm(x, y) {
     const cx = MOTION_BED_CIRCLE_CX;
@@ -545,7 +545,7 @@ function PickAndPlacePage() {
     }, []);
 
 
-    /** Map screen → machine mm inside semicircle (flat edge at bottom, apex at top center). */
+    /** Map screen → machine mm inside semicircle (flat edge at top Y=0, apex at bottom center). */
     const clientToBedMm = useCallback((clientX, clientY) => {
         const el = motionBedRef.current;
         if (!el) return null;
