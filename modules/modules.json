@@ -9,15 +9,6 @@
     "version": "1.0.3"
   },
   {
-    "module_type": "magnetic_pnp",
-    "display_name": "Magnetic Pick & Place",
-    "image_url": "https://cdn-modules.onrender.com/modules/pnp/assets/mechanic.png",
-    "route_path": "/magnetic_pnp",
-    "jsx_file_url": "https://cdn-modules.onrender.com/modules/pnp/magneticpnp.jsx",
-    "css_file_url": "https://cdn-modules.onrender.com/modules/pnp/magneticpnp.css",
-    "version": "1.0.0"
-  },
-  {
     "module_type": "plotter",
     "display_name": "Vector Plotter",
     "image_url": "https://cdn-modules.onrender.com/modules/pnp/assets/mechanic.png",
