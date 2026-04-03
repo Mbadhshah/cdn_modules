@@ -15,28 +15,16 @@ const MOTION_BED_X_MAX = 250;
 const MOTION_BED_Y_MIN = 0;
 const MOTION_BED_Y_MAX = 300;
 
-/** Single line from device means the current streamed command finished. */
-function isOneLineStreamDone(line) {
-    const t = String(line).trim().toLowerCase();
-    if (!t) return false;
-    if (t === 'ok' || t.startsWith('ok')) return true;
-    if (t.includes('now g0 executed')) return true;
-    if (t.includes('g0 executed') && (t.includes('rapid positioning') || t.includes('completed'))) return true;
-    // M03/M05: "M03 oky", "m03 ok", prefixes like "echo: M03 oky"
-    const m3 = t.includes('m03') || /\bm3\b/.test(t);
-    const m5 = t.includes('m05') || /\bm5\b/.test(t);
-    if (m3 && (t.includes('oky') || /\bm0?3\s+ok\b/.test(t))) return true;
-    if (m5 && (t.includes('oky') || /\bm0?5\s+ok\b/.test(t))) return true;
-    return false;
-}
-
-/** WebSocket payload may contain multiple lines; any matching line counts as one completion signal for the waiter. */
-function isStreamedGcodeDoneMessage(raw) {
+/** Advance streamed G-code queue only on firmware `ok` (Grbl-style: exact or line starting with `ok`). */
+function isFirmwareOkMessage(raw) {
     if (raw == null) return false;
     const text = String(raw);
     const lines = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     const chunks = lines.length > 0 ? lines : [text.trim()];
-    return chunks.some(isOneLineStreamDone);
+    return chunks.some((line) => {
+        const t = line.toLowerCase();
+        return t === 'ok' || t.startsWith('ok');
+    });
 }
 
 function PickAndPlacePage() {
@@ -58,7 +46,6 @@ function PickAndPlacePage() {
     const [extensionDragOffset, setExtensionDragOffset] = useState({ x: 0, y: 0 });
     const [showDownloadOptions, setShowDownloadOptions] = useState(false);
     const [isSendingToDevice, setIsSendingToDevice] = useState(false);
-    const [positionFetched, setPositionFetched] = useState(false);
     const [isSimulating, setIsSimulating] = useState(false);
 
     const extensionPopupRef = useRef(null);
@@ -70,6 +57,8 @@ function PickAndPlacePage() {
     const isSimulatingRef = useRef(false);
 
     const motionBedRef = useRef(null);
+    /** Latest machine XYZ from #POS; used to seed motion modal (not stale block/saved clicks). */
+    const lastMachinePoseRef = useRef(null);
     const popupRef = useRef(null);
     const popupHeaderRef = useRef(null);
 
@@ -139,11 +128,6 @@ function PickAndPlacePage() {
 
         setWorkspaceBlocks(prev => [...prev, newBlock]);
 
-        // If it's a motion block, reset position fetched flag
-        if (droppedBlock.type === 'motion') {
-            setPositionFetched(false);
-        }
-
         openModal(newBlock);
     };
 
@@ -154,12 +138,23 @@ function PickAndPlacePage() {
 
     const openModal = (block) => {
         setActiveBlock(block);
-        setTempState({ ...block.vals });
+        if (block.type === 'motion') {
+            if (connectionStatus === 'connected' && lastMachinePoseRef.current) {
+                const m = lastMachinePoseRef.current;
+                setTempState({ ...block.vals, x: m.x, y: m.y, z: m.z });
+            } else if (connectionStatus === 'connected') {
+                setTempState({ ...block.vals, x: 0, y: 0, z: 0 });
+            } else {
+                setTempState({ ...block.vals });
+            }
+        } else {
+            setTempState({ ...block.vals });
+        }
         setModalOpen(true);
 
-        // Start continuous position polling if it's a motion block and online
         if (block.type === 'motion' && connectionStatus === 'connected') {
             startPositionPolling();
+            if (sendWebSocketMessage) sendWebSocketMessage('#POS');
         }
     };
 
@@ -203,7 +198,6 @@ function PickAndPlacePage() {
 
         setModalOpen(false);
         setActiveBlock(null);
-        setPositionFetched(false); // Reset flag for next motion block
     };
 
     const generateGcode = () => {
@@ -571,8 +565,8 @@ function PickAndPlacePage() {
             const { message } = event.detail;
             const trimmedMsg = message ? message.trim().toLowerCase() : '';
 
-            // Advance simulation queue when this line is done (ok or firmware G0-done text)
-            if (isSimulatingRef.current && isStreamedGcodeDoneMessage(message)) {
+            // Advance simulation queue only on firmware ok
+            if (isSimulatingRef.current && isFirmwareOkMessage(message)) {
                 handleOkResponse();
             }
 
@@ -587,17 +581,21 @@ function PickAndPlacePage() {
                 sendWebSocketMessage('#POS');
             }
 
-            // Only process position responses when modal is open for a motion block
-            if (modalOpen && activeBlock?.type === 'motion') {
-                const posData = parsePosResponse(message);
-                if (posData) {
-                    setTempState(s => ({
-                        ...s,
-                        x: posData.machine.x,
-                        y: posData.machine.y,
-                        z: posData.machine.z
-                    }));
-                }
+            const posData = parsePosResponse(message);
+            if (posData && connectionStatus === 'connected') {
+                lastMachinePoseRef.current = {
+                    x: posData.machine.x,
+                    y: posData.machine.y,
+                    z: posData.machine.z
+                };
+            }
+            if (modalOpen && activeBlock?.type === 'motion' && posData) {
+                setTempState(s => ({
+                    ...s,
+                    x: posData.machine.x,
+                    y: posData.machine.y,
+                    z: posData.machine.z
+                }));
             }
         };
 
@@ -606,7 +604,7 @@ function PickAndPlacePage() {
         return () => {
             window.removeEventListener('websocket-message', handleWebSocketMessage);
         };
-    }, [modalOpen, activeBlock, handleOkResponse, sendWebSocketMessage]);
+    }, [modalOpen, activeBlock, handleOkResponse, sendWebSocketMessage, connectionStatus]);
 
     // Handle modal open/close and connection status changes - start/stop polling
     useEffect(() => {
