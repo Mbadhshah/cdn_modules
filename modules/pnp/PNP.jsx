@@ -9,6 +9,12 @@ const PALETTE_BLOCKS = [
     { type: 'vacuum', label: 'Pick & Place ', icon: '◎' },
 ];
 
+/** Machine bed for motion picker (mm): X −250…250, Y 0…300 */
+const MOTION_BED_X_MIN = -250;
+const MOTION_BED_X_MAX = 250;
+const MOTION_BED_Y_MIN = 0;
+const MOTION_BED_Y_MAX = 300;
+
 function PickAndPlacePage() {
     const [simulationCount, setSimulationCount] = useState(1);
     const { connectionStatus, sendWebSocketMessage, espInfo } = useConnection();
@@ -16,7 +22,7 @@ function PickAndPlacePage() {
     const [modalOpen, setModalOpen] = useState(false);
     const [activeBlock, setActiveBlock] = useState(null);
     const [tempState, setTempState] = useState({});
-    const [motionMode, setMotionMode] = useState('joy');
+    const [motionMode, setMotionMode] = useState('bed');
     const [showGcodePopup, setShowGcodePopup] = useState(false);
     const [popupPosition, setPopupPosition] = useState({ x: 50, y: 50 });
     const [isDragging, setIsDragging] = useState(false);
@@ -39,11 +45,8 @@ function PickAndPlacePage() {
     const waitingForOkRef = useRef(false);
     const isSimulatingRef = useRef(false);
 
-    const joyStickRef = useRef(null);
-    const joyBaseRef = useRef(null);
-    const isJoyDraggingRef = useRef(false);
-    const joyIntervalRef = useRef(null);
-    const joyStickPosRef = useRef({ dx: 0, dy: 0 });
+    const motionBedRef = useRef(null);
+    const isBedDraggingRef = useRef(false);
     const popupRef = useRef(null);
     const popupHeaderRef = useRef(null);
 
@@ -492,69 +495,62 @@ function PickAndPlacePage() {
     }, []);
 
 
-    const applyJoy = useCallback(() => {
-        const { dx, dy } = joyStickPosRef.current;
-        const step = parseFloat(document.querySelector('input[name="step"]:checked')?.value || '1');
-        setTempState(s => {
-            let newX = s.x + dx * step;
-            let newY = s.y + dy * -step; // Invert Y
+    const clientToBedMm = useCallback((clientX, clientY) => {
+        const el = motionBedRef.current;
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return null;
+        let x = MOTION_BED_X_MIN + ((clientX - rect.left) / rect.width) * (MOTION_BED_X_MAX - MOTION_BED_X_MIN);
+        let y = MOTION_BED_Y_MIN + ((rect.bottom - clientY) / rect.height) * (MOTION_BED_Y_MAX - MOTION_BED_Y_MIN);
+        x = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, x));
+        y = Math.max(MOTION_BED_Y_MIN, Math.min(MOTION_BED_Y_MAX, y));
+        return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+    }, []);
 
-            newX = Math.max(-250, Math.min(250, newX));
-            newY = Math.max(0, Math.min(300, newY));
+    const handleBedPointerDown = useCallback((e) => {
+        if (e.button != null && e.button !== 0) return;
+        isBedDraggingRef.current = true;
+        try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+        } catch (_) { /* ignore */ }
+        const pt = clientToBedMm(e.clientX, e.clientY);
+        if (pt) setTempState((s) => ({ ...s, x: pt.x, y: pt.y }));
+    }, [clientToBedMm]);
 
-            return { ...s, x: newX, y: newY };
+    const handleBedPointerMove = useCallback((e) => {
+        if (!isBedDraggingRef.current) return;
+        const pt = clientToBedMm(e.clientX, e.clientY);
+        if (pt) setTempState((s) => ({ ...s, x: pt.x, y: pt.y }));
+    }, [clientToBedMm]);
+
+    const handleBedPointerUp = useCallback((e) => {
+        if (!isBedDraggingRef.current) return;
+        isBedDraggingRef.current = false;
+        try {
+            if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+            }
+        } catch (_) { /* ignore */ }
+        const pt = clientToBedMm(e.clientX, e.clientY);
+        if (!pt) return;
+        setTempState((s) => {
+            if (connectionStatus === 'connected' && sendWebSocketMessage) {
+                const z = s.z ?? 0;
+                const cmd = `G0 X${pt.x.toFixed(1)} Y${pt.y.toFixed(1)} Z${z.toFixed(1)}`;
+                sendWebSocketMessage(cmd.trim());
+            }
+            return { ...s, x: pt.x, y: pt.y };
         });
+    }, [connectionStatus, sendWebSocketMessage, clientToBedMm]);
+
+    const handleBedPointerCancel = useCallback((e) => {
+        isBedDraggingRef.current = false;
+        try {
+            if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+            }
+        } catch (_) { /* ignore */ }
     }, []);
-
-
-    const handleJoyMouseDown = (e) => {
-        isJoyDraggingRef.current = true;
-        joyIntervalRef.current = setInterval(applyJoy, 30);
-    };
-
-    const handleJoyMouseUp = useCallback(() => {
-        if (isJoyDraggingRef.current) {
-            isJoyDraggingRef.current = false;
-            clearInterval(joyIntervalRef.current);
-            if (joyStickRef.current) joyStickRef.current.style.transform = `translate(0px,0px)`;
-            joyStickPosRef.current = { dx: 0, dy: 0 };
-        }
-    }, [applyJoy]);
-
-    const handleJoyMouseMove = useCallback((e) => {
-        if (!isJoyDraggingRef.current || !joyBaseRef.current) return;
-        const rect = joyBaseRef.current.getBoundingClientRect();
-        let dx = e.clientX - (rect.left + 90);
-        let dy = e.clientY - (rect.top + 90);
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const maxDist = 50;
-        if (dist > maxDist) {
-            const angle = Math.atan2(dy, dx);
-            dx = Math.cos(angle) * maxDist;
-            dy = Math.sin(angle) * maxDist;
-        }
-        if (joyStickRef.current) joyStickRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
-        joyStickPosRef.current = { dx: dx / maxDist, dy: dy / maxDist };
-    }, []);
-
-
-    useEffect(() => {
-        const handleMouseUp = () => {
-            handleJoyMouseUp();
-        };
-        const handleMouseMove = (e) => {
-            handleJoyMouseMove(e);
-        };
-
-        window.addEventListener('mouseup', handleMouseUp);
-        window.addEventListener('mousemove', handleMouseMove);
-
-        return () => {
-            window.removeEventListener('mouseup', handleMouseUp);
-            window.removeEventListener('mousemove', handleMouseMove);
-            if (joyIntervalRef.current) clearInterval(joyIntervalRef.current);
-        };
-    }, [handleJoyMouseUp, handleJoyMouseMove]);
 
     useEffect(() => {
         if (activeBlock?.type === 'motion') {
@@ -622,9 +618,12 @@ function PickAndPlacePage() {
         const currentPos = tempState[axis] || 0;
         const newPos = parseFloat((currentPos + increment).toFixed(1));
 
-        // Clamp Z axis if needed
         let clampedPos = newPos;
-        if (axis === 'z') {
+        if (axis === 'x') {
+            clampedPos = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, newPos));
+        } else if (axis === 'y') {
+            clampedPos = Math.max(MOTION_BED_Y_MIN, Math.min(MOTION_BED_Y_MAX, newPos));
+        } else if (axis === 'z') {
             clampedPos = Math.max(0, Math.min(200, newPos));
         }
 
@@ -644,19 +643,42 @@ function PickAndPlacePage() {
                 return (
                     <div id="ui-motion" className="view-section active">
                         <div className="mode-toggle">
-                            <button className={`mode-btn ${motionMode === 'joy' ? 'active' : ''}`} onClick={() => setMotionMode('joy')}>Joystick</button>
-                            <button className={`mode-btn ${motionMode === 'btn' ? 'active' : ''}`} onClick={() => setMotionMode('btn')}>Buttons</button>
+                            <button type="button" className={`mode-btn ${motionMode === 'bed' ? 'active' : ''}`} onClick={() => setMotionMode('bed')}>Bed</button>
+                            <button type="button" className={`mode-btn ${motionMode === 'btn' ? 'active' : ''}`} onClick={() => setMotionMode('btn')}>Buttons</button>
                         </div>
 
-                        {motionMode === 'joy' ? (
-                            <div className="joystick-group" style={{ flexDirection: 'column', gap: '20px' }}>
-                                <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                                    <div className="joystick-base" ref={joyBaseRef} onMouseDown={handleJoyMouseDown}>
-                                        <div className="joystick-stick" ref={joyStickRef}></div>
+                        {motionMode === 'bed' ? (
+                            <div className="joystick-group bed-mode-group" style={{ flexDirection: 'column', gap: '20px' }}>
+                                <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+                                    <div className="motion-bed-wrap">
+                                        <div
+                                            ref={motionBedRef}
+                                            className="motion-bed"
+                                            onPointerDown={handleBedPointerDown}
+                                            onPointerMove={handleBedPointerMove}
+                                            onPointerUp={handleBedPointerUp}
+                                            onPointerCancel={handleBedPointerCancel}
+                                        >
+                                            <div className="motion-bed-grid" aria-hidden />
+                                            <div className="motion-bed-axis motion-bed-axis-x" aria-hidden />
+                                            <div className="motion-bed-axis motion-bed-axis-y" aria-hidden />
+                                            <span className="motion-bed-corner motion-bed-corner-tl">−250, 300</span>
+                                            <span className="motion-bed-corner motion-bed-corner-tr">250, 300</span>
+                                            <span className="motion-bed-corner motion-bed-corner-bl">−250, 0</span>
+                                            <span className="motion-bed-corner motion-bed-corner-br">250, 0</span>
+                                            <div
+                                                className="motion-bed-marker"
+                                                style={{
+                                                    left: `${(((tempState.x ?? 0) - MOTION_BED_X_MIN) / (MOTION_BED_X_MAX - MOTION_BED_X_MIN)) * 100}%`,
+                                                    bottom: `${(((tempState.y ?? 0) - MOTION_BED_Y_MIN) / (MOTION_BED_Y_MAX - MOTION_BED_Y_MIN)) * 100}%`,
+                                                }}
+                                            />
+                                        </div>
+                                        <div className="motion-bed-hint">Tap or drag — Y = 0 at front, X = 0 center</div>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                        <button className="btn-dpad" style={{ width: '60px' }} onMouseDown={() => jog('z', -1)}>Z▲</button>
-                                        <button className="btn-dpad" style={{ width: '60px' }} onMouseDown={() => jog('z', 1)}>Z▼</button>
+                                        <button type="button" className="btn-dpad" style={{ width: '60px' }} onMouseDown={() => jog('z', -1)}>Z▲</button>
+                                        <button type="button" className="btn-dpad" style={{ width: '60px' }} onMouseDown={() => jog('z', 1)}>Z▼</button>
                                     </div>
                                 </div>
                                 <div className="step-selector">
