@@ -7,7 +7,6 @@ import { uploadGcodeFile } from '../../frontend/src/components/api/gcodeUploader
 const PALETTE_BLOCKS = [
     { type: 'motion', label: 'Move to PointS', icon: '✥' },
     { type: 'vacuum', label: 'Pick & Place ', icon: '◎' },
-    { type: 'orient', label: 'Set Orientation', icon: '⟳' },
 ];
 
 function PickAndPlacePage() {
@@ -83,7 +82,6 @@ function PickAndPlacePage() {
     const getDefaultLabel = (type) => {
         if (type === 'motion') return "X:0 Y:0 Z:0";
         if (type === 'vacuum') return "OFF";
-        if (type === 'orient') return "A:0 B:0 C:0";
         return "";
     };
 
@@ -91,7 +89,6 @@ function PickAndPlacePage() {
         const { type, vals } = block;
         if (type === 'motion') return `X:${vals.x} Y:${vals.y} Z:${vals.z}`;
         if (type === 'vacuum') return vals.on ? `ON` : `OFF`;
-        if (type === 'orient') return `A:${vals.a || 0} B:${vals.b || 0} C:${vals.c || 0}`;
         return "";
     };
 
@@ -190,9 +187,6 @@ function PickAndPlacePage() {
             const { type, vals: d } = blk;
             if (type === 'motion') gcode += `G0 X${d.x.toFixed(1)} Y${d.y.toFixed(1)} Z${d.z.toFixed(1)}\n`;
             if (type === 'vacuum') gcode += d.on ? `M03\n` : `M05\n`;
-            if (type === 'orient') {
-                gcode += `G0 A${d.a || 0} B${d.b || 0} C${d.c || 0}\n`;
-            }
         });
 
         return gcode;
@@ -741,96 +735,13 @@ function PickAndPlacePage() {
                         }}>⏻</button>
                     </div>
                 );
-            case 'orient':
-                return (
-                    <div id="ui-orient" className="view-section active">
-                        <div className="h-slider-group">
-                            <div className="h-slider-lbl">
-                                <span>Axis A</span>
-                                <span>{tempState.a || 0}</span>
-                            </div>
-                            <input
-                                type="range"
-                                className="h-slider"
-                                min="0"
-                                max="255"
-                                value={tempState.a || 0}
-                                onInput={(e) => {
-                                    const value = parseInt(e.target.value);
-                                    setTempState(s => {
-                                        const newState = { ...s, a: value };
-                                        if (connectionStatus === 'connected') {
-                                            const a = value;
-                                            const b = newState.b || 0;
-                                            const c = newState.c || 0;
-                                            sendGcode(`G0 A${a} B${b} C${c}`);
-                                        }
-                                        return newState;
-                                    });
-                                }}
-                            />
-                        </div>
-                        <div className="h-slider-group">
-                            <div className="h-slider-lbl">
-                                <span>Axis B</span>
-                                <span>{tempState.b || 0}</span>
-                            </div>
-                            <input
-                                type="range"
-                                className="h-slider"
-                                min="0"
-                                max="255"
-                                value={tempState.b || 0}
-                                onInput={(e) => {
-                                    const value = parseInt(e.target.value);
-                                    setTempState(s => {
-                                        const newState = { ...s, b: value };
-                                        if (connectionStatus === 'connected') {
-                                            const a = newState.a || 0;
-                                            const b = value;
-                                            const c = newState.c || 0;
-                                            sendGcode(`G0 A${a} B${b} C${c}`);
-                                        }
-                                        return newState;
-                                    });
-                                }}
-                            />
-                        </div>
-                        <div className="h-slider-group">
-                            <div className="h-slider-lbl">
-                                <span>Axis C</span>
-                                <span>{tempState.c || 0}</span>
-                            </div>
-                            <input
-                                type="range"
-                                className="h-slider"
-                                min="0"
-                                max="255"
-                                value={tempState.c || 0}
-                                onInput={(e) => {
-                                    const value = parseInt(e.target.value);
-                                    setTempState(s => {
-                                        const newState = { ...s, c: value };
-                                        if (connectionStatus === 'connected') {
-                                            const a = newState.a || 0;
-                                            const b = newState.b || 0;
-                                            const c = value;
-                                            sendGcode(`G0 A${a} B${b} C${c}`);
-                                        }
-                                        return newState;
-                                    });
-                                }}
-                            />
-                        </div>
-                    </div>
-                );
             default: return null;
         }
     };
 
     const modalTitle = activeBlock ?
         activeBlock.type === 'motion' ? "Set Coordinates" :
-            activeBlock.type === 'vacuum' ? "Vacuum Settings" : "Orientation Settings"
+        activeBlock.type === 'vacuum' ? "Vacuum Settings" : "Unknown Block"
         : "";
 
     return (
@@ -907,7 +818,7 @@ function PickAndPlacePage() {
                                     <div className="stat-item">
                                         <span className="stat-label">Block Types</span>
                                         <div className="stat-breakdown">
-                                            {['motion', 'vacuum', 'orient'].map(type => {
+                                            {['motion', 'vacuum'].map(type => {
                                                 const count = workspaceBlocks.filter(b => b.type === type).length;
                                                 const blocksOfType = workspaceBlocks
                                                     .map((block, index) => ({ block, index: index + 1 }))
