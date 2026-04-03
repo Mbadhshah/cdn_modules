@@ -773,13 +773,17 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 220px;
+    min-width: 220px;
+    width: 100%;
     max-width: 340px;
+    align-self: stretch;
   }
   .motion-bed {
     position: relative;
     width: 100%;
+    min-width: 200px;
+    min-height: 120px;
     aspect-ratio: 500 / 300;
     background: rgba(30, 35, 45, 0.85);
     border: 2px solid var(--glass-border);
