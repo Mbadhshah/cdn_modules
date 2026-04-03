@@ -15,6 +15,20 @@ const MOTION_BED_X_MAX = 250;
 const MOTION_BED_Y_MIN = 0;
 const MOTION_BED_Y_MAX = 300;
 
+/**
+ * One line of streamed G-code is done: Grbl "ok", G0 completion text, or e.g. "M03 oky" / "M05 oky".
+ */
+function isStreamedGcodeDoneMessage(raw) {
+    if (raw == null) return false;
+    const t = String(raw).trim().toLowerCase();
+    if (t === 'ok' || t.startsWith('ok')) return true;
+    if (t.includes('now g0 executed')) return true;
+    if (t.includes('g0 executed') && (t.includes('rapid positioning') || t.includes('completed'))) return true;
+    if (/m0?3\s+oky/.test(t)) return true;
+    if (/m0?5\s+oky/.test(t)) return true;
+    return false;
+}
+
 function PickAndPlacePage() {
     const [simulationCount, setSimulationCount] = useState(1);
     const { connectionStatus, sendWebSocketMessage, espInfo } = useConnection();
@@ -49,27 +63,24 @@ function PickAndPlacePage() {
     const popupRef = useRef(null);
     const popupHeaderRef = useRef(null);
 
-    // Parse POS response from ESP: "POS:0.000,0.000,0.000|0.000,0.000,0.000"
+    // Parse POS from ESP, e.g. "POS:0,0,0|0,0,0" or "POS:0.000,0.000,0.000" (machine | work optional)
     const parsePosResponse = (message) => {
         if (!message || typeof message !== 'string') return null;
-
         const trimmed = message.trim();
-        const posMatch = trimmed.match(/POS:\s*([\d.-]+)\s*,\s*([\d.-]+)\s*,\s*([\d.-]+)\s*|\s*([\d.-]+)\s*,\s*([\d.-]+)\s*,\s*([\d.-]+)/);
-        if (posMatch) {
-            return {
-                machine: {
-                    x: parseFloat(posMatch[1]) || 0,
-                    y: parseFloat(posMatch[2]) || 0,
-                    z: parseFloat(posMatch[3]) || 0
-                },
-                work: {
-                    x: parseFloat(posMatch[4]) || 0,
-                    y: parseFloat(posMatch[5]) || 0,
-                    z: parseFloat(posMatch[6]) || 0
-                }
-            };
-        }
-        return null;
+        const posMatch = trimmed.match(/POS:\s*([\d.-]+)\s*,\s*([\d.-]+)\s*,\s*([\d.-]+)(?:\s*\|\s*([\d.-]+)\s*,\s*([\d.-]+)\s*,\s*([\d.-]+))?/i);
+        if (!posMatch) return null;
+        return {
+            machine: {
+                x: parseFloat(posMatch[1]) || 0,
+                y: parseFloat(posMatch[2]) || 0,
+                z: parseFloat(posMatch[3]) || 0
+            },
+            work: posMatch[4] != null ? {
+                x: parseFloat(posMatch[4]) || 0,
+                y: parseFloat(posMatch[5]) || 0,
+                z: parseFloat(posMatch[6]) || 0
+            } : null
+        };
     };
 
     // Send G-code command
@@ -536,16 +547,26 @@ function PickAndPlacePage() {
             const { message } = event.detail;
             const trimmedMsg = message ? message.trim().toLowerCase() : '';
 
-            // Check for ok response (for simulation)
-            if (isSimulatingRef.current && (trimmedMsg === 'ok' || trimmedMsg.startsWith('ok'))) {
+            // Advance simulation queue when this line is done (ok or firmware G0-done text)
+            if (isSimulatingRef.current && isStreamedGcodeDoneMessage(message)) {
                 handleOkResponse();
+            }
+
+            // After a move completes, refresh position from device (skip while line-by-line sim is running)
+            if (
+                modalOpen &&
+                activeBlock?.type === 'motion' &&
+                !isSimulatingRef.current &&
+                sendWebSocketMessage &&
+                (trimmedMsg === 'ok' || trimmedMsg.startsWith('ok'))
+            ) {
+                sendWebSocketMessage('#POS');
             }
 
             // Only process position responses when modal is open for a motion block
             if (modalOpen && activeBlock?.type === 'motion') {
                 const posData = parsePosResponse(message);
                 if (posData) {
-                    // Update tempState with machine coordinates continuously
                     setTempState(s => ({
                         ...s,
                         x: posData.machine.x,
@@ -561,7 +582,7 @@ function PickAndPlacePage() {
         return () => {
             window.removeEventListener('websocket-message', handleWebSocketMessage);
         };
-    }, [modalOpen, activeBlock, handleOkResponse]);
+    }, [modalOpen, activeBlock, handleOkResponse, sendWebSocketMessage]);
 
     // Handle modal open/close and connection status changes - start/stop polling
     useEffect(() => {
