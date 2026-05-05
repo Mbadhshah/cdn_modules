@@ -20,9 +20,8 @@ const DEFAULT_SETTINGS = {
 
   // Dot engraving
   dotSpacing: 0.5,        // mm between dots
-  laserPower: 1000,       // S value passed to M3 Sx
-  maxDwell: 60,           // ms for darkest pixel
-  minDwell: 4,            // ms for lightest non-white pixel
+  laserPower: 1000,       // Max S value (used for a fully black pixel). Lighter pixels get a proportionally lower S.
+  dwell: 30,              // ms — fixed dwell time used for every dot
   whiteThreshold: 240,    // 0..255 — pixels brighter are skipped (no burn)
   invert: false,          // negative image
   zigzag: true,           // alternate row direction (faster travel)
@@ -45,7 +44,10 @@ function clamp(v, a, b) {
 
 // --- Image -> dot grid ---
 // For each (col,row) cell of size dotSpacing × dotSpacing, sample average grayscale.
-// Skip pixels brighter than whiteThreshold. Map remaining brightness -> dwell time.
+// Skip pixels brighter than whiteThreshold. Store normalized darkness (0..1)
+// per dot so the per-dot laser S-value can be derived later as
+// S = round(darkness * laserPower) — black pixel => full power, lighter
+// pixel => proportionally lower power.
 function imageToDotGrid(imageEl, settings) {
   const cols = Math.max(1, Math.floor(settings.width / settings.dotSpacing));
   const rows = Math.max(1, Math.floor(settings.height / settings.dotSpacing));
@@ -61,18 +63,14 @@ function imageToDotGrid(imageEl, settings) {
 
   const dots = [];
   const wt = clamp(settings.whiteThreshold, 1, 255);
-  const minD = settings.minDwell;
-  const maxD = settings.maxDwell;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const i = (r * cols + c) * 4;
       let lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
       if (settings.invert) lum = 255 - lum;
       if (lum >= wt) continue;
-      // darkness 0..1 (1 = black, 0 = at threshold)
-      const darkness = (wt - lum) / wt;
-      const dwell = minD + darkness * (maxD - minD);
-      dots.push({ c, r, dwell, lum });
+      const darkness = (wt - lum) / wt; // 1 = black, 0 = at threshold
+      dots.push({ c, r, darkness, lum });
     }
   }
   return { dots, cols, rows };
@@ -102,6 +100,12 @@ function generateLaserDotGCode(items) {
     });
     const rows = [...byRow.keys()].sort((a, b) => a - b);
 
+    // Fixed dwell for every dot (user-set value, same for the whole job)
+    const dwellMs = Math.max(1, Math.round(s.dwell));
+    const dwellOut = s.dwellUnit === 's'
+      ? (dwellMs / 1000).toFixed(3)
+      : dwellMs;
+
     let leftToRight = true;
     rows.forEach((r) => {
       const rowDots = byRow.get(r);
@@ -114,11 +118,10 @@ function generateLaserDotGCode(items) {
         // Top-left of image in bed coords: x = posX, y = posY + height.
         const xMm = s.posX + d.c * s.dotSpacing + s.dotSpacing / 2;
         const yMm = s.posY + s.height - (d.r * s.dotSpacing + s.dotSpacing / 2);
-        const dwellOut = s.dwellUnit === 's'
-          ? (d.dwell / 1000).toFixed(3)
-          : Math.max(1, Math.round(d.dwell));
+        // Scale laser S by pixel darkness: black => s.laserPower, lighter => proportionally less.
+        const sVal = Math.max(1, Math.min(65535, Math.round(d.darkness * s.laserPower)));
         lines.push(`G0 X${xMm.toFixed(3)} Y${yMm.toFixed(3)}`);
-        lines.push(`M3 S${s.laserPower}`);
+        lines.push(`M3 S${sVal}`);
         lines.push(`G4 P${dwellOut}`);
         lines.push('M5');
       });
@@ -153,22 +156,20 @@ function DotPreview({ item, scale, isSelected }) {
     if (!grid.dots.length) return;
 
     const sp = settings.dotSpacing;
-    const maxD = settings.maxDwell;
-    const minD = settings.minDwell;
-    const range = Math.max(0.0001, maxD - minD);
 
     grid.dots.forEach((d) => {
       const x = d.c * sp + sp / 2;
       const y = d.r * sp + sp / 2;
-      // Dot radius scales with dwell (visualizes burn intensity)
-      const t = clamp((d.dwell - minD) / range, 0, 1);
+      // Dot radius and opacity scale with darkness — i.e. with the laser S
+      // value that will actually be emitted (S = darkness * laserPower).
+      const t = clamp(d.darkness, 0, 1);
       const rad = Math.max(sp * 0.15, sp * (0.25 + 0.55 * t));
       ctx.beginPath();
       ctx.arc(x, y, rad, 0, Math.PI * 2);
-      ctx.fillStyle = '#111';
+      ctx.fillStyle = `rgba(17,17,17,${0.35 + 0.65 * t})`;
       ctx.fill();
     });
-  }, [item.grid, item.settings.width, item.settings.height, item.settings.dotSpacing, item.settings.minDwell, item.settings.maxDwell]);
+  }, [item.grid, item.settings.width, item.settings.height, item.settings.dotSpacing]);
 
   const { settings } = item;
   return (
@@ -303,8 +304,9 @@ export default function LaserDotEngraver({ uploadFolder = 'laser_dot' }) {
         return { ...it, settings: nextSettings };
       })
     );
-    // Settings that affect the dot grid -> debounced recompute
-    const affectsGrid = ['width', 'height', 'dotSpacing', 'whiteThreshold', 'invert', 'minDwell', 'maxDwell'];
+    // Settings that affect the dot grid -> debounced recompute.
+    // (laserPower and dwell don't change the grid; they're applied at G-code generation time.)
+    const affectsGrid = ['width', 'height', 'dotSpacing', 'whiteThreshold', 'invert'];
     if (affectsGrid.includes(key)) scheduleRecompute(activeId);
   };
 
@@ -657,14 +659,9 @@ export default function LaserDotEngraver({ uploadFolder = 'laser_dot' }) {
                     onChange={(e) => updateSetting('laserPower', parseFloat(e.target.value) || 0)} />
                 </div>
                 <div className="ldot-control-group">
-                  <label>Max dwell (ms):</label>
-                  <input type="number" step="1" min="1" value={activeItem.settings.maxDwell}
-                    onChange={(e) => updateSetting('maxDwell', parseFloat(e.target.value) || 1)} />
-                </div>
-                <div className="ldot-control-group">
-                  <label>Min dwell (ms):</label>
-                  <input type="number" step="1" min="0" value={activeItem.settings.minDwell}
-                    onChange={(e) => updateSetting('minDwell', parseFloat(e.target.value) || 0)} />
+                  <label>Dwell (ms):</label>
+                  <input type="number" step="1" min="1" value={activeItem.settings.dwell}
+                    onChange={(e) => updateSetting('dwell', parseFloat(e.target.value) || 1)} />
                 </div>
                 <div className="ldot-control-group">
                   <label>White threshold:</label>
@@ -701,8 +698,9 @@ export default function LaserDotEngraver({ uploadFolder = 'laser_dot' }) {
             )}
 
             <div className="ldot-hint">
-              Load an image. Each pixel becomes a laser dot — darker pixels burn longer.
-              Tune dot spacing and dwell to match your laser.
+              Load an image. Each pixel becomes a laser dot — darker pixels burn at higher
+              power (S is scaled from 0..255 grayscale up to your "Laser power" max).
+              Dwell time is the same for every dot.
             </div>
           </div>
         </div>
