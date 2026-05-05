@@ -16,5 +16,14 @@
     "jsx_file_url": "https://cdn-modules.onrender.com/modules/pnp/Plotter.jsx",
     "css_file_url": "https://cdn-modules.onrender.com/modules/pnp/Plotter.css",
     "version": "1.0.0"
+  },
+  {
+    "module_type": "laser_dot",
+      "display_name": "Laser Dot Engraver",
+      "image_url": "https://cdn-modules.onrender.com/modules/pnp/assets/laser.png",
+      "route_path": "/laser_dot",
+      "jsx_file_url": "https://cdn-modules.onrender.com/modules/pnp/laser_dot.jsx",
+      "css_file_url": "https://cdn-modules.onrender.com/modules/pnp/laser_dot.css",
+      "version": "1.0.0"
   }
 ]
