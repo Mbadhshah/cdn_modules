@@ -123,10 +123,7 @@ function PickAndPlacePage() {
 
     const getBlockLabel = (block) => {
         const { type, vals } = block;
-        if (type === 'motion') {
-            const side = vals.operatorSide === 'right' ? ' R' : '';
-            return `X:${vals.x} Y:${vals.y} Z:${vals.z}${side}`;
-        }
+        if (type === 'motion') return `X:${vals.x} Y:${vals.y} Z:${vals.z}`;
         if (type === 'vacuum') return vals.on ? `ON` : `OFF`;
         if (type === 'dwell') return `${Math.max(1, Math.round(vals.dwellMs ?? 500))}ms`;
         return "";
@@ -149,7 +146,7 @@ function PickAndPlacePage() {
         const newBlock = {
             id: uuidv4(),
             type: droppedBlock.type,
-            vals: droppedBlock.type === 'motion' ? { x: 0, y: 0, z: 0, operatorSide: 'left' } :
+            vals: droppedBlock.type === 'motion' ? { x: 0, y: 0, z: 0 } :
                 droppedBlock.type === 'vacuum' ? { on: false } :
                     droppedBlock.type === 'dwell' ? { dwellMs: 500 } :
                     { a: 0, b: 0, c: 0 }
@@ -168,7 +165,7 @@ function PickAndPlacePage() {
     const openModal = (block) => {
         setActiveBlock(block);
         if (block.type === 'motion') {
-            const v = { operatorSide: 'left', ...block.vals };
+            const v = { ...block.vals };
             if (connectionStatus === 'connected' && lastMachinePoseRef.current) {
                 const m = lastMachinePoseRef.current;
                 setTempState({ ...v, x: m.x, y: m.y, z: m.z });
@@ -559,8 +556,8 @@ function PickAndPlacePage() {
     }, []);
 
 
-    /** Map screen → machine mm inside semicircle (flat edge at top Y=0, apex at bottom center). */
-    const clientToBedMm = useCallback((clientX, clientY, invertX) => {
+    /** Map screen → machine mm inside semicircle. X is mirrored vs raw left→right so screen-left (+X region) matches jog/tap. */
+    const clientToBedMm = useCallback((clientX, clientY) => {
         const el = motionBedRef.current;
         if (!el) return null;
         const rect = el.getBoundingClientRect();
@@ -569,7 +566,7 @@ function PickAndPlacePage() {
         const ySpan = MOTION_BED_Y_MAX - MOTION_BED_Y_MIN;
         const tx = (clientX - rect.left) / rect.width;
         let x = MOTION_BED_X_MIN + tx * xSpan;
-        if (invertX) x = -x;
+        x = -x;
         let y = MOTION_BED_Y_MIN + ((clientY - rect.top) / rect.height) * ySpan;
         return clampToSemicircleMm(x, y);
     }, []);
@@ -577,8 +574,7 @@ function PickAndPlacePage() {
     const handleBedTap = useCallback((e) => {
         if (e.button != null && e.button !== 0) return;
         setTempState((s) => {
-            const invertX = s.operatorSide === 'right';
-            const pt = clientToBedMm(e.clientX, e.clientY, invertX);
+            const pt = clientToBedMm(e.clientX, e.clientY);
             if (!pt) return s;
             if (connectionStatus === 'connected' && sendWebSocketMessage) {
                 const z = s.z ?? 0;
@@ -678,7 +674,8 @@ function PickAndPlacePage() {
 
         let nx = tempState.x || 0;
         let ny = tempState.y || 0;
-        const xJogDir = axis === 'x' && tempState.operatorSide === 'right' ? -dir : dir;
+        const mirrorXJog = motionMode === 'bed' && axis === 'x';
+        const xJogDir = mirrorXJog ? -dir : dir;
         if (axis === 'x') {
             const xNew = parseFloat(((tempState.x || 0) + xJogDir * step).toFixed(1));
             nx = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, xNew));
@@ -702,12 +699,6 @@ function PickAndPlacePage() {
                             <button type="button" className={`mode-btn ${motionMode === 'bed' ? 'active' : ''}`} onClick={() => setMotionMode('bed')}>Bed</button>
                             <button type="button" className={`mode-btn ${motionMode === 'btn' ? 'active' : ''}`} onClick={() => setMotionMode('btn')}>Buttons</button>
                         </div>
-                        <div className="operator-side-toggle" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
-                            <span style={{ fontSize: 13, opacity: 0.85 }}>Your side:</span>
-                            <button type="button" className={`mode-btn ${tempState.operatorSide !== 'right' ? 'active' : ''}`} onClick={() => setTempState(s => ({ ...s, operatorSide: 'left' }))}>Left</button>
-                            <button type="button" className={`mode-btn ${tempState.operatorSide === 'right' ? 'active' : ''}`} onClick={() => setTempState(s => ({ ...s, operatorSide: 'right' }))}>Right</button>
-                            <span style={{ fontSize: 11, opacity: 0.65, width: '100%' }}>Left: +X / +Y as on screen. Right: X mirrored (+Y unchanged).</span>
-                        </div>
 
                         {motionMode === 'bed' ? (
                             <div className="joystick-group bed-mode-group" style={{ flexDirection: 'column', gap: '20px' }}>
@@ -724,7 +715,7 @@ function PickAndPlacePage() {
                                             <div
                                                 className="motion-bed-marker"
                                                 style={{
-                                                    left: `${(((tempState.x ?? 0) - MOTION_BED_X_MIN) / (MOTION_BED_X_MAX - MOTION_BED_X_MIN)) * 100}%`,
+                                                    left: `${((MOTION_BED_X_MAX - (tempState.x ?? 0)) / (MOTION_BED_X_MAX - MOTION_BED_X_MIN)) * 100}%`,
                                                     top: `${(((tempState.y ?? 0) - MOTION_BED_Y_MIN) / (MOTION_BED_Y_MAX - MOTION_BED_Y_MIN)) * 100}%`,
                                                 }}
                                             />
