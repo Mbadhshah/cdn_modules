@@ -196,7 +196,7 @@ function DotPreview({ item, scale, isSelected }) {
 }
 
 // --- Main Component ---
-export default function LaserDotEngraver({ uploadFolder = 'laser_dot' }) {
+export default function LaserDotEngraver({ uploadFolder = 'laser' }) {
   const { connectionStatus, espInfo, sendWebSocketMessage } = useConnection?.() || {};
 
   const [items, setItems] = useState([]); // [{ id, name, image, settings, grid, originalSize }]
