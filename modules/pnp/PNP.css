@@ -869,13 +869,15 @@
     position: absolute;
     pointer-events: none;
   }
+  /* Vertical center: X− left / X+ right of line (machine coords after screen mirroring) */
   .motion-bed-axis-x {
     left: 50%;
     top: 0;
     bottom: 0;
     width: 0;
-    border-left: 1px solid rgba(0, 210, 255, 0.4);
-    transform: translateX(-0.5px);
+    border-left: 2px solid rgba(59, 130, 246, 0.95);
+    transform: translateX(-1px);
+    z-index: 1;
   }
   .motion-bed-axis-y {
     left: 0;
