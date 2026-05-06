@@ -27,6 +27,7 @@ const DEFAULT_SETTINGS = {
   zigzag: true,           // alternate row direction (faster travel)
   travelSpeed: 6000,      // mm/min
   dwellUnit: 'ms',        // 'ms' (Marlin: G4 P<ms>) or 's' (GRBL: G4 P<sec>)
+  workZ: 0,               // mm — Z height used for dot engraving
 };
 
 function createItemId() {
@@ -91,6 +92,7 @@ function generateLaserDotGCode(items) {
 
     lines.push(`; --- Image ${idx + 1}: ${item.name} (${grid.dots.length} dots) ---`);
     lines.push(`G0 F${s.travelSpeed}`);
+    lines.push(`G0 Z${(s.workZ ?? 0).toFixed(3)}`);
 
     // Group dots by row, then traverse rows top-to-bottom with zigzag X direction.
     const byRow = new Map();
@@ -195,7 +197,7 @@ function DotPreview({ item, scale, isSelected }) {
 
 // --- Main Component ---
 export default function LaserDotEngraver({ uploadFolder = 'laser_dot' }) {
-  const { connectionStatus, espInfo } = useConnection?.() || {};
+  const { connectionStatus, espInfo, sendWebSocketMessage } = useConnection?.() || {};
 
   const [items, setItems] = useState([]); // [{ id, name, image, settings, grid, originalSize }]
   const [activeId, setActiveId] = useState(null);
@@ -206,6 +208,8 @@ export default function LaserDotEngraver({ uploadFolder = 'laser_dot' }) {
   const [lastGeneratedGcode, setLastGeneratedGcode] = useState(null);
   const [showGcodeDialog, setShowGcodeDialog] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [zJogStep, setZJogStep] = useState(1);
+  const [machineZ, setMachineZ] = useState(0);
 
   const [dragMode, setDragMode] = useState('NONE'); // 'NONE' | 'VIEW' | 'IMAGE'
   const lastMousePos = useRef({ x: 0, y: 0 });
@@ -217,6 +221,48 @@ export default function LaserDotEngraver({ uploadFolder = 'laser_dot' }) {
   const debounceTimerRef = useRef(null);
 
   const activeItem = items.find((i) => i.id === activeId);
+
+  const parsePosResponse = (message) => {
+    if (!message || typeof message !== 'string') return null;
+    const m = message.trim().match(/POS:\s*([\d.-]+)\s*,\s*([\d.-]+)\s*,\s*([\d.-]+)(?:\s*\|\s*([\d.-]+)\s*,\s*([\d.-]+)\s*,\s*([\d.-]+))?/i);
+    if (!m) return null;
+    return {
+      machine: {
+        x: parseFloat(m[1]) || 0,
+        y: parseFloat(m[2]) || 0,
+        z: parseFloat(m[3]) || 0,
+      },
+    };
+  };
+
+  useEffect(() => {
+    const onWs = (event) => {
+      const { message, type } = event.detail || {};
+      if (type !== 'RX') return;
+      const posData = parsePosResponse(message);
+      if (posData) setMachineZ(round1(posData.machine.z));
+    };
+    window.addEventListener('websocket-message', onWs);
+    return () => window.removeEventListener('websocket-message', onWs);
+  }, []);
+
+  const readCurrentZ = () => {
+    if (connectionStatus !== 'connected' || !sendWebSocketMessage) return;
+    sendWebSocketMessage('#POS');
+  };
+
+  const jogZ = (dir) => {
+    if (connectionStatus !== 'connected' || !sendWebSocketMessage) return;
+    const step = Math.max(0.1, Number(zJogStep) || 0.1);
+    const targetZ = round1(machineZ + dir * step);
+    sendWebSocketMessage(`G0 Z${targetZ.toFixed(1)}`);
+    setMachineZ(targetZ);
+  };
+
+  const setWorkZFromMachine = () => {
+    if (!activeItem) return;
+    updateSetting('workZ', machineZ);
+  };
 
   // --- Image processing (debounced when settings change) ---
   const recomputeGrid = (item) => {
@@ -672,6 +718,33 @@ export default function LaserDotEngraver({ uploadFolder = 'laser_dot' }) {
                   <label>Travel speed:</label>
                   <input type="number" step="100" value={activeItem.settings.travelSpeed}
                     onChange={(e) => updateSetting('travelSpeed', parseFloat(e.target.value) || 0)} />
+                </div>
+                <div className="ldot-control-group">
+                  <label>Work Z (mm):</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={activeItem.settings.workZ ?? 0}
+                    onChange={(e) => updateSetting('workZ', parseFloat(e.target.value) || 0)}
+                  />
+                </div>
+                <div className="ldot-control-group" style={{ display: 'block' }}>
+                  <label style={{ display: 'block', marginBottom: 6 }}>Z jog (set before Work Z):</label>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Machine Z: {machineZ.toFixed(1)}</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={zJogStep}
+                      onChange={(e) => setZJogStep(Math.max(0.1, parseFloat(e.target.value) || 0.1))}
+                      style={{ width: 72 }}
+                    />
+                    <button type="button" className="ldot-full-width-btn" style={{ width: 'auto', padding: '6px 10px' }} onClick={() => jogZ(-1)} disabled={connectionStatus !== 'connected'}>Z-</button>
+                    <button type="button" className="ldot-full-width-btn" style={{ width: 'auto', padding: '6px 10px' }} onClick={() => jogZ(1)} disabled={connectionStatus !== 'connected'}>Z+</button>
+                    <button type="button" className="ldot-full-width-btn" style={{ width: 'auto', padding: '6px 10px' }} onClick={readCurrentZ} disabled={connectionStatus !== 'connected'}>Read Z</button>
+                    <button type="button" className="ldot-full-width-btn" style={{ width: 'auto', padding: '6px 10px' }} onClick={setWorkZFromMachine}>Use current</button>
+                  </div>
                 </div>
                 <div className="ldot-control-group">
                   <label>Negative image:</label>
