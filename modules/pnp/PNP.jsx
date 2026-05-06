@@ -7,7 +7,7 @@ import { uploadGcodeFile } from '../../frontend/src/components/api/gcodeUploader
 const PALETTE_BLOCKS = [
     { type: 'motion', label: 'Move to point', icon: '✥' },
     { type: 'vacuum', label: 'Pick & Place ', icon: '◎' },
-    { type: 'delay', label: 'Dwell', icon: '⏱', defaultSeconds: 0.5 },
+    { type: 'dwell', label: 'Dwell', icon: '⏱' },
 ];
 
 /** Semicircle bed (mm): X −390…390, Y 0 flat top → 390 apex bottom. Upper half of disk center (0,0), R=390. */
@@ -58,8 +58,6 @@ function PickAndPlacePage() {
     const [activeBlock, setActiveBlock] = useState(null);
     const [tempState, setTempState] = useState({});
     const [motionMode, setMotionMode] = useState('bed');
-    /** Invert screen Y ↔ machine Y on the semicircle bed (Move block only). */
-    const [motionBedFlipped, setMotionBedFlipped] = useState(false);
     const [showGcodePopup, setShowGcodePopup] = useState(false);
     const [popupPosition, setPopupPosition] = useState({ x: 50, y: 50 });
     const [isDragging, setIsDragging] = useState(false);
@@ -119,15 +117,18 @@ function PickAndPlacePage() {
     const getDefaultLabel = (type) => {
         if (type === 'motion') return "X:0 Y:0 Z:0";
         if (type === 'vacuum') return "OFF";
-        if (type === 'delay') return "0.5s";
+        if (type === 'dwell') return "500ms";
         return "";
     };
 
     const getBlockLabel = (block) => {
         const { type, vals } = block;
-        if (type === 'motion') return `X:${vals.x} Y:${vals.y} Z:${vals.z}`;
+        if (type === 'motion') {
+            const side = vals.operatorSide === 'right' ? ' R' : '';
+            return `X:${vals.x} Y:${vals.y} Z:${vals.z}${side}`;
+        }
         if (type === 'vacuum') return vals.on ? `ON` : `OFF`;
-        if (type === 'delay') return `${(vals.seconds ?? 0.5).toFixed(1)}s`;
+        if (type === 'dwell') return `${Math.max(1, Math.round(vals.dwellMs ?? 500))}ms`;
         return "";
     };
 
@@ -148,11 +149,10 @@ function PickAndPlacePage() {
         const newBlock = {
             id: uuidv4(),
             type: droppedBlock.type,
-            vals: droppedBlock.type === 'motion' ? { x: 0, y: 0, z: 0 } :
+            vals: droppedBlock.type === 'motion' ? { x: 0, y: 0, z: 0, operatorSide: 'left' } :
                 droppedBlock.type === 'vacuum' ? { on: false } :
-                    droppedBlock.type === 'delay'
-                        ? { seconds: droppedBlock.defaultSeconds ?? 0.5 }
-                        : { a: 0, b: 0, c: 0 }
+                    droppedBlock.type === 'dwell' ? { dwellMs: 500 } :
+                    { a: 0, b: 0, c: 0 }
         };
 
         setWorkspaceBlocks(prev => [...prev, newBlock]);
@@ -168,16 +168,19 @@ function PickAndPlacePage() {
     const openModal = (block) => {
         setActiveBlock(block);
         if (block.type === 'motion') {
+            const v = { operatorSide: 'left', ...block.vals };
             if (connectionStatus === 'connected' && lastMachinePoseRef.current) {
                 const m = lastMachinePoseRef.current;
-                setTempState({ ...block.vals, x: m.x, y: m.y, z: m.z });
+                setTempState({ ...v, x: m.x, y: m.y, z: m.z });
             } else if (connectionStatus === 'connected') {
-                setTempState({ ...block.vals, x: 0, y: 0, z: 0 });
+                setTempState({ ...v, x: 0, y: 0, z: 0 });
             } else {
-                setTempState({ ...block.vals });
+                setTempState({ ...v });
             }
         } else {
-            setTempState({ ...block.vals });
+            setTempState(block.type === 'dwell'
+                ? { dwellMs: Math.max(1, Math.round(block.vals?.dwellMs ?? 500)) }
+                : { ...block.vals });
         }
         setModalOpen(true);
 
@@ -238,9 +241,8 @@ function PickAndPlacePage() {
             const { type, vals: d } = blk;
             if (type === 'motion') gcode += `G0 X${d.x.toFixed(1)} Y${d.y.toFixed(1)} Z${d.z.toFixed(1)}\n`;
             if (type === 'vacuum') gcode += d.on ? `M03\n` : `M05\n`;
-            if (type === 'delay') {
-                const sec = Math.max(0, d.seconds ?? 0.5);
-                const ms = Math.round(sec * 1000);
+            if (type === 'dwell') {
+                const ms = Math.max(1, Math.round(d.dwellMs ?? 500));
                 gcode += `G4 P${ms}\n`;
             }
         });
@@ -558,7 +560,7 @@ function PickAndPlacePage() {
 
 
     /** Map screen → machine mm inside semicircle (flat edge at top Y=0, apex at bottom center). */
-    const clientToBedMm = useCallback((clientX, clientY) => {
+    const clientToBedMm = useCallback((clientX, clientY, invertX) => {
         const el = motionBedRef.current;
         if (!el) return null;
         const rect = el.getBoundingClientRect();
@@ -566,18 +568,18 @@ function PickAndPlacePage() {
         const xSpan = MOTION_BED_X_MAX - MOTION_BED_X_MIN;
         const ySpan = MOTION_BED_Y_MAX - MOTION_BED_Y_MIN;
         const tx = (clientX - rect.left) / rect.width;
-        let ty = (clientY - rect.top) / rect.height;
-        if (motionBedFlipped) ty = 1 - ty;
         let x = MOTION_BED_X_MIN + tx * xSpan;
-        let y = MOTION_BED_Y_MIN + ty * ySpan;
+        if (invertX) x = -x;
+        let y = MOTION_BED_Y_MIN + ((clientY - rect.top) / rect.height) * ySpan;
         return clampToSemicircleMm(x, y);
-    }, [motionBedFlipped]);
+    }, []);
 
     const handleBedTap = useCallback((e) => {
         if (e.button != null && e.button !== 0) return;
-        const pt = clientToBedMm(e.clientX, e.clientY);
-        if (!pt) return;
         setTempState((s) => {
+            const invertX = s.operatorSide === 'right';
+            const pt = clientToBedMm(e.clientX, e.clientY, invertX);
+            if (!pt) return s;
             if (connectionStatus === 'connected' && sendWebSocketMessage) {
                 const z = s.z ?? 0;
                 const cmd = `G0 X${pt.x.toFixed(1)} Y${pt.y.toFixed(1)} Z${z.toFixed(1)}`;
@@ -676,8 +678,10 @@ function PickAndPlacePage() {
 
         let nx = tempState.x || 0;
         let ny = tempState.y || 0;
+        const xJogDir = axis === 'x' && tempState.operatorSide === 'right' ? -dir : dir;
         if (axis === 'x') {
-            nx = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, newPos));
+            const xNew = parseFloat(((tempState.x || 0) + xJogDir * step).toFixed(1));
+            nx = Math.max(MOTION_BED_X_MIN, Math.min(MOTION_BED_X_MAX, xNew));
         } else if (axis === 'y') {
             ny = Math.max(MOTION_BED_Y_MIN, Math.min(MOTION_BED_Y_MAX, newPos));
         }
@@ -698,17 +702,15 @@ function PickAndPlacePage() {
                             <button type="button" className={`mode-btn ${motionMode === 'bed' ? 'active' : ''}`} onClick={() => setMotionMode('bed')}>Bed</button>
                             <button type="button" className={`mode-btn ${motionMode === 'btn' ? 'active' : ''}`} onClick={() => setMotionMode('btn')}>Buttons</button>
                         </div>
+                        <div className="operator-side-toggle" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+                            <span style={{ fontSize: 13, opacity: 0.85 }}>Your side:</span>
+                            <button type="button" className={`mode-btn ${tempState.operatorSide !== 'right' ? 'active' : ''}`} onClick={() => setTempState(s => ({ ...s, operatorSide: 'left' }))}>Left</button>
+                            <button type="button" className={`mode-btn ${tempState.operatorSide === 'right' ? 'active' : ''}`} onClick={() => setTempState(s => ({ ...s, operatorSide: 'right' }))}>Right</button>
+                            <span style={{ fontSize: 11, opacity: 0.65, width: '100%' }}>Left: +X / +Y as on screen. Right: X mirrored (+Y unchanged).</span>
+                        </div>
 
                         {motionMode === 'bed' ? (
                             <div className="joystick-group bed-mode-group" style={{ flexDirection: 'column', gap: '20px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', userSelect: 'none' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={motionBedFlipped}
-                                        onChange={(e) => setMotionBedFlipped(e.target.checked)}
-                                    />
-                                    <span>Flip bed (invert Y)</span>
-                                </label>
                                 <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
                                     <div className="motion-bed-wrap">
                                         <div
@@ -723,10 +725,7 @@ function PickAndPlacePage() {
                                                 className="motion-bed-marker"
                                                 style={{
                                                     left: `${(((tempState.x ?? 0) - MOTION_BED_X_MIN) / (MOTION_BED_X_MAX - MOTION_BED_X_MIN)) * 100}%`,
-                                                    top: `${(() => {
-                                                        const yn = ((tempState.y ?? 0) - MOTION_BED_Y_MIN) / (MOTION_BED_Y_MAX - MOTION_BED_Y_MIN);
-                                                        return (motionBedFlipped ? 1 - yn : yn) * 100;
-                                                    })()}%`,
+                                                    top: `${(((tempState.y ?? 0) - MOTION_BED_Y_MIN) / (MOTION_BED_Y_MAX - MOTION_BED_Y_MIN)) * 100}%`,
                                                 }}
                                             />
                                         </div>
@@ -797,6 +796,23 @@ function PickAndPlacePage() {
                         </div>
                     </div>
                 );
+            case 'dwell':
+                return (
+                    <div id="ui-dwell" className="view-section active">
+                        <p className="vacuum-toggle-hint">Pause (G4 P… milliseconds)</p>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 14 }}>
+                            <span>Dwell time (ms)</span>
+                            <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={Math.max(1, Math.round(tempState.dwellMs ?? 500))}
+                                onChange={(e) => setTempState(s => ({ ...s, dwellMs: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
+                                style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(0,0,0,0.2)', color: 'inherit' }}
+                            />
+                        </label>
+                    </div>
+                );
             case 'vacuum':
                 return (
                     <div id="ui-vacuum" className="view-section active">
@@ -829,30 +845,6 @@ function PickAndPlacePage() {
                         </div>
                     </div>
                 );
-            case 'delay':
-                return (
-                    <div id="ui-dwell" className="view-section active">
-                        <p className="vacuum-toggle-hint">Dwell (pause)</p>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px' }}>
-                            <span>Seconds (G4 P in milliseconds)</span>
-                            <input
-                                type="number"
-                                min={0}
-                                step={0.1}
-                                value={tempState.seconds ?? 0.5}
-                                onChange={(e) => setTempState((s) => ({ ...s, seconds: Math.max(0, parseFloat(e.target.value) || 0) }))}
-                                style={{
-                                    padding: '10px',
-                                    borderRadius: '6px',
-                                    border: '1px solid rgba(255,255,255,0.2)',
-                                    background: 'rgba(0,0,0,0.2)',
-                                    color: 'inherit',
-                                    maxWidth: '200px',
-                                }}
-                            />
-                        </label>
-                    </div>
-                );
             default: return null;
         }
     };
@@ -860,7 +852,7 @@ function PickAndPlacePage() {
     const modalTitle = activeBlock ?
         activeBlock.type === 'motion' ? "Set Coordinates" :
         activeBlock.type === 'vacuum' ? "Vacuum Settings" :
-        activeBlock.type === 'delay' ? "Dwell" : "Unknown Block"
+        activeBlock.type === 'dwell' ? "Dwell" : "Unknown Block"
         : "";
 
     return (
@@ -953,7 +945,7 @@ function PickAndPlacePage() {
                                     <div className="stat-item">
                                         <span className="stat-label">Block Types</span>
                                         <div className="stat-breakdown">
-                                            {['motion', 'vacuum', 'delay'].map(type => {
+                                            {['motion', 'vacuum', 'dwell'].map(type => {
                                                 const count = workspaceBlocks.filter(b => b.type === type).length;
                                                 const blocksOfType = workspaceBlocks
                                                     .map((block, index) => ({ block, index: index + 1 }))
