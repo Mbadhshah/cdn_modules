@@ -752,7 +752,7 @@ export default function LaserDotEngraver({ uploadFolder = 'laser' }) {
                     onChange={(e) => updateSetting('invert', e.target.checked)} />
                 </div>
                 <div className="ldot-control-group">
-                  <label>Zigzag travel:</label>
+                  <label>Zigzag Travel:</label>
                   <input type="checkbox" checked={activeItem.settings.zigzag}
                     onChange={(e) => updateSetting('zigzag', e.target.checked)} />
                 </div>
