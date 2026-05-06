@@ -8,6 +8,7 @@
     --text-muted: rgba(255, 255, 255, 0.5);
     --block-motion: #4c97ff;
     --block-vacuum: #9966ff;
+    --block-dwell: #2ecc71;
     --block-orient: #ffbf00;
   }
   
@@ -616,6 +617,7 @@
   
   .block-motion { background: var(--block-motion); }
   .block-vacuum { background: var(--block-vacuum); }
+  .block-dwell { background: var(--block-dwell); color: #0d1a12; }
   .block-orient { background: var(--block-orient); color: #333; }
   
   /* Values display inside block */
