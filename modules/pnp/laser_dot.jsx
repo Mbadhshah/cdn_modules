@@ -198,6 +198,7 @@ function DotPreview({ item, scale, isSelected }) {
 // --- Main Component ---
 export default function LaserDotEngraver({ uploadFolder = 'laser' }) {
   const { connectionStatus, espInfo, sendWebSocketMessage } = useConnection?.() || {};
+  const targetUploadFolder = uploadFolder === 'laser_dot' ? 'laser' : (uploadFolder || 'laser');
 
   const [items, setItems] = useState([]); // [{ id, name, image, settings, grid, originalSize }]
   const [activeId, setActiveId] = useState(null);
@@ -414,8 +415,8 @@ export default function LaserDotEngraver({ uploadFolder = 'laser' }) {
     setIsSending(true);
     try {
       const file = new File([lastGeneratedGcode], fileName, { type: 'text/plain' });
-      await uploadGcodeFile(baseUrl, file, uploadFolder);
-      alert(`G-code sent to device.\nSaved as: ${uploadFolder}/${fileName}`);
+      await uploadGcodeFile(baseUrl, file, targetUploadFolder);
+      alert(`G-code sent to device.\nSaved as: ${targetUploadFolder}/${fileName}`);
       setShowGcodeDialog(false);
     } catch (e) {
       console.error(e);
@@ -752,7 +753,7 @@ export default function LaserDotEngraver({ uploadFolder = 'laser' }) {
                     onChange={(e) => updateSetting('invert', e.target.checked)} />
                 </div>
                 <div className="ldot-control-group">
-                  <label>Zigzag Travel:</label>
+                  <label>Zigzag travel:</label>
                   <input type="checkbox" checked={activeItem.settings.zigzag}
                     onChange={(e) => updateSetting('zigzag', e.target.checked)} />
                 </div>
